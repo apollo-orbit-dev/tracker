@@ -9,6 +9,7 @@ See `docs/setup.md`.
 - `docs/architecture.md` — how the pieces fit together
 - `docs/setup.md` — running from a fresh clone
 - `docs/operations.md` — backup, restore, deploy, troubleshooting
+- `docs/okta-sso.md` — adding Okta / OIDC single sign-on
 
 ## License
 [Apache-2.0](LICENSE).
