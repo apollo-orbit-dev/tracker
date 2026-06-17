@@ -1,0 +1,29 @@
+# Caddy config for the production tracker stack.
+#
+# Caddy listens on :80 inside the container; docker-compose.prod.yml
+# maps it to ${HOST_PORT:-8080} on the host. TLS termination is NOT
+# done here — put a separate Caddy / nginx / Traefik in front (or run
+# Caddy with `tls` directives + a host network) for HTTPS.
+
+{
+	# Hide the Caddy admin API by default; no remote management needed.
+	admin off
+}
+
+:80 {
+	# Backend API. /api/* is the only path the backend serves (FastAPI
+	# routers all prefix with /api). Strip nothing; pass the path through
+	# unchanged so the backend's routes match.
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
+
+	# Everything else is the SPA. `try_files {path} /index.html` makes
+	# history-mode routing work: a deep link like /projects/abc returns
+	# index.html, and React Router resolves the path client-side.
+	handle {
+		root * /srv/static
+		try_files {path} /index.html
+		file_server
+	}
+}

@@ -1,0 +1,83 @@
+# Production Docker Compose stack.
+#
+# Differs from the dev compose (docker-compose.yml):
+# - No host-port exposure for Postgres (backend reaches it over the
+#   Docker network only).
+# - Backend runs from baked-in source (no bind-mounts) with the
+#   production Dockerfile that does NOT use --reload, and applies
+#   Alembic migrations via entrypoint.sh on start.
+# - Frontend served by a Caddy container that bakes in the built SPA
+#   and reverse-proxies /api/* to the backend.
+# - Single host port (HOST_PORT, default 8080) exposed by Caddy. All
+#   traffic — SPA assets AND API calls — funnels through it, so
+#   ALLOWED_ORIGINS only needs the Caddy URL.
+#
+# Bring up with: docker compose -f docker-compose.prod.yml up -d --build
+# (or via `make up-prod` once the Makefile target lands).
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: tracker-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-tracker}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-tracker}
+    volumes:
+      - tracker-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tracker} -d ${POSTGRES_DB:-tracker}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: tracker-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-tracker}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-tracker}
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET must be set in .env}
+      APP_ENV: ${APP_ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Comma-separated allowlist for the CSRF Origin/Referer check.
+      # Should match the Caddy URL(s) users browse to.
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?ALLOWED_ORIGINS must be set in .env}
+      # Bootstrap admin — read once by `python -m backend.app.seed` on
+      # first deploy. Idempotent on subsequent runs.
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health').read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  caddy:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: tracker-caddy
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${HOST_PORT:-8080}:80"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Caddy's auto-cert data (unused without `tls` directives, but
+      # named so it doesn't churn on restart).
+      - tracker-caddy-data:/data
+      - tracker-caddy-config:/config
+
+volumes:
+  tracker-postgres-data:
+  tracker-caddy-data:
+  tracker-caddy-config:

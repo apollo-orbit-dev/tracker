@@ -1,0 +1,86 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: tracker-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-tracker}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: ${POSTGRES_DB:-tracker}
+    ports:
+      # 127.0.0.1 only — the backend reaches Postgres over the Docker
+      # network; the host-side bind is just for local psql / pytest
+      # convenience. Don't expose 0.0.0.0 with default creds.
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - tracker-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tracker} -d ${POSTGRES_DB:-tracker}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend.Dockerfile
+    container_name: tracker-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-tracker}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/${POSTGRES_DB:-tracker}
+      SESSION_SECRET: ${SESSION_SECRET:-dev-secret-do-not-use-in-prod}
+      APP_ENV: ${APP_ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:5181}
+      # Read by `python -m backend.app.seed` to create the bootstrap
+      # admin on first run. Empty in dev unless the host's .env sets
+      # them; the seed script no-ops cleanly when missing.
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+    ports:
+      - "8011:8000"
+    volumes:
+      # Bind-mount source for hot reload via uvicorn --reload.
+      # The editable install at image-build time pinned the package
+      # location to /app. alembic.ini also gets mounted so dev edits
+      # land in the container without a rebuild.
+      - ./backend:/app/backend
+      - ./pyproject.toml:/app/pyproject.toml:ro
+      - ./alembic.ini:/app/alembic.ini:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health').read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend.Dockerfile
+    container_name: tracker-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      VITE_API_PROXY_TARGET: http://backend:8000
+      # Comma-separated allowlist for the Vite dev server's Host-header
+      # filter. Set when deploying behind a reverse proxy at a custom
+      # hostname (e.g. "tracker.lan,demo.example.com"). Unset = allow
+      # any host (fine for LAN demos; the dev server is meant for
+      # trusted environments).
+      VITE_ALLOWED_HOSTS: ${VITE_ALLOWED_HOSTS:-}
+    ports:
+      - "5181:5173"
+    volumes:
+      # Bind-mount source for HMR; anonymous volume protects the container's
+      # installed node_modules from being shadowed by the host's (or absence of one).
+      - ./frontend:/app
+      - tracker-frontend-node-modules:/app/node_modules
+
+volumes:
+  tracker-postgres-data:
+  tracker-frontend-node-modules:

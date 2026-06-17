@@ -1,0 +1,173 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* Dark variant matches both `.dark` (shadcn) and `[data-theme="dark"]`
+   (the Phase 4 design convention) so existing dark: utilities keep working
+   while the new theme toggle uses the data attribute. */
+@custom-variant dark (&:where(.dark, .dark *, [data-theme="dark"], [data-theme="dark"] *));
+
+/* ============================ TOKENS ================================== */
+/* Phase 4.1: design tokens from `docs/design/2026-06-08-ui-overhaul/styles.css`.
+   Bare-HSL values composed via `hsl(var(...))` so new design CSS can write
+   `background: hsl(var(--bg))` while Tailwind's @theme inline (below) maps
+   the shadcn semantic names (`bg-background`, etc.) to the same source. */
+:root {
+  --radius: 0.5rem;
+
+  /* Surface + text */
+  --bg:            0 0% 100%;
+  --fg:            222 24% 11%;
+  --card:          0 0% 100%;
+  --card-2:        220 22% 99%;
+  --popover:       0 0% 100%;
+  --muted:         220 18% 96.5%;
+  --muted-2:       220 16% 94%;
+  --muted-fg:      220 9% 46%;
+  --subtle-fg:     220 8% 58%;
+
+  /* Borders + inputs */
+  --border:        220 16% 90%;
+  --border-strong: 220 14% 83%;
+  --input:         220 16% 90%;
+
+  /* Brand */
+  --primary:       243 75% 59%;
+  --primary-fg:    0 0% 100%;
+  --primary-soft:  243 80% 96%;
+  --ring:          243 75% 59%;
+
+  /* Sidebar + rows */
+  --sidebar:       220 22% 98%;
+  --row-hover:     220 24% 97%;
+  --row-sel:       243 80% 97.5%;
+
+  /* Six semantic tones for status badges, indicator dots, and chart fills. */
+  --tone-slate-bg:   220 16% 95%;   --tone-slate-fg:   220 12% 38%;   --tone-slate-dot:   220 9% 55%;
+  --tone-emerald-bg: 152 46% 93%;   --tone-emerald-fg: 158 64% 26%;   --tone-emerald-dot: 152 56% 40%;
+  --tone-amber-bg:   42 90% 92%;    --tone-amber-fg:   30 70% 34%;    --tone-amber-dot:   38 92% 50%;
+  --tone-indigo-bg:  243 80% 95.5%; --tone-indigo-fg:  243 55% 48%;   --tone-indigo-dot:  243 75% 60%;
+  --tone-rose-bg:    350 78% 95%;   --tone-rose-fg:    349 60% 44%;   --tone-rose-dot:    349 70% 56%;
+  --tone-blue-bg:    212 92% 94%;   --tone-blue-fg:    214 70% 42%;   --tone-blue-dot:    212 84% 52%;
+
+  /* Density-aware row metrics. Toggled via `data-density="compact"` below. */
+  --row-h: 44px;
+  --row-py: 9px;
+  --fs-table: 13.5px;
+
+  /* Elevation shadows used by popovers and side panels. */
+  --shadow-pop: 0 1px 2px rgba(16,18,27,.04), 0 8px 24px -8px rgba(16,18,27,.16), 0 1px 0 rgba(16,18,27,.02);
+  --shadow-panel: -1px 0 0 hsl(var(--border)), -16px 0 32px -24px rgba(16,18,27,.22);
+
+  /* Charts get a tone-aware revamp during 4.4; keep the originals here so
+     existing dashboard widgets don't regress visually before then. */
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+}
+
+:root[data-density="compact"] {
+  --row-h: 34px;
+  --row-py: 4px;
+  --fs-table: 12.75px;
+}
+
+.dark,
+[data-theme="dark"] {
+  --bg:            224 28% 6.5%;
+  --fg:            220 22% 94%;
+  --card:          224 24% 8.5%;
+  --card-2:        224 22% 10.5%;
+  --popover:       224 26% 9%;
+  --muted:         224 20% 13.5%;
+  --muted-2:       224 18% 17%;
+  --muted-fg:      220 12% 60%;
+  --subtle-fg:     220 10% 48%;
+  --border:        223 18% 17%;
+  --border-strong: 223 16% 24%;
+  --input:         223 18% 19%;
+  --primary:       243 80% 70%;
+  --primary-fg:    243 60% 12%;
+  --primary-soft:  243 50% 18%;
+  --ring:          243 80% 70%;
+  --sidebar:       224 26% 7.5%;
+  --row-hover:     224 22% 11%;
+  --row-sel:       243 50% 16%;
+  --shadow-pop: 0 1px 2px rgba(0,0,0,.4), 0 12px 32px -8px rgba(0,0,0,.6);
+  --shadow-panel: -1px 0 0 hsl(var(--border)), -16px 0 40px -24px rgba(0,0,0,.6);
+
+  --tone-slate-bg:   222 16% 18%;   --tone-slate-fg:   220 14% 72%;   --tone-slate-dot:   220 10% 60%;
+  --tone-emerald-bg: 158 40% 16%;   --tone-emerald-fg: 152 56% 64%;   --tone-emerald-dot: 152 56% 50%;
+  --tone-amber-bg:   36 50% 18%;    --tone-amber-fg:   42 90% 66%;    --tone-amber-dot:   40 92% 56%;
+  --tone-indigo-bg:  243 44% 24%;   --tone-indigo-fg:  243 90% 84%;   --tone-indigo-dot:  243 80% 70%;
+  --tone-rose-bg:    349 40% 22%;   --tone-rose-fg:    349 90% 78%;   --tone-rose-dot:    349 74% 62%;
+  --tone-blue-bg:    214 50% 22%;   --tone-blue-fg:    212 90% 76%;   --tone-blue-dot:    212 84% 60%;
+
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+}
+
+/* ============================ Tailwind @theme bridge ================== */
+/* Map shadcn semantic color names → the design's bare-HSL tokens so existing
+   `bg-background`, `text-foreground`, `bg-card`, `border-border` etc. keep
+   working with the new palette without per-component restyling. New 4.x
+   markup is free to reference the bare tokens directly too. */
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background:             hsl(var(--bg));
+  --color-foreground:             hsl(var(--fg));
+  --color-card:                   hsl(var(--card));
+  --color-card-foreground:        hsl(var(--fg));
+  --color-popover:                hsl(var(--popover));
+  --color-popover-foreground:     hsl(var(--fg));
+  --color-primary:                hsl(var(--primary));
+  --color-primary-foreground:     hsl(var(--primary-fg));
+  --color-secondary:              hsl(var(--muted));
+  --color-secondary-foreground:   hsl(var(--fg));
+  --color-muted:                  hsl(var(--muted));
+  --color-muted-foreground:       hsl(var(--muted-fg));
+  --color-accent:                 hsl(var(--muted));
+  --color-accent-foreground:      hsl(var(--fg));
+  --color-destructive:            hsl(var(--tone-rose-fg));
+  --color-border:                 hsl(var(--border));
+  --color-input:                  hsl(var(--input));
+  --color-ring:                   hsl(var(--ring));
+  --color-chart-1:                var(--chart-1);
+  --color-chart-2:                var(--chart-2);
+  --color-chart-3:                var(--chart-3);
+  --color-chart-4:                var(--chart-4);
+  --color-chart-5:                var(--chart-5);
+  --color-sidebar:                hsl(var(--sidebar));
+  --color-sidebar-foreground:     hsl(var(--fg));
+  --color-sidebar-primary:        hsl(var(--primary));
+  --color-sidebar-primary-foreground: hsl(var(--primary-fg));
+  --color-sidebar-accent:         hsl(var(--muted));
+  --color-sidebar-accent-foreground: hsl(var(--fg));
+  --color-sidebar-border:         hsl(var(--border));
+  --color-sidebar-ring:           hsl(var(--ring));
+}
+
+/* ============================ Base styles ============================ */
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    font-family: "Geist", ui-sans-serif, system-ui, sans-serif;
+    font-feature-settings: "cv01", "cv03", "ss01";
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    @apply bg-background text-foreground;
+  }
+  .font-mono {
+    font-family: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    font-feature-settings: "zero";
+  }
+}
