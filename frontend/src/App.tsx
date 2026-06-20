@@ -4,7 +4,9 @@ import { AdminIndexRedirect, AdminLayout } from "@/components/AdminLayout"
 import { AdminRoute } from "@/components/AdminRoute"
 import { AppLayout } from "@/components/AppLayout"
 import { ProtectedRoute } from "@/components/ProtectedRoute"
+import { AdminSettingsPage } from "@/pages/AdminSettingsPage"
 import { AuditLogPage } from "@/pages/AuditLogPage"
+import { CalendarPage } from "@/pages/CalendarPage"
 import { ContactsManagePage } from "@/pages/ContactsManagePage"
 import { DashboardPage } from "@/pages/Dashboard"
 import { LoginPage } from "@/pages/Login"
@@ -35,6 +37,7 @@ function App() {
         <Route path="/projects" element={<ProjectsListPage />} />
         <Route path="/projects/view" element={<ProjectsViewPage />} />
         <Route path="/projects/:pid" element={<ProjectDetailPage />} />
+        <Route path="/calendar" element={<CalendarPage />} />
         <Route path="/views/:vid" element={<ViewPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route
@@ -138,6 +141,14 @@ function App() {
             element={
               <AdminRoute>
                 <AuditLogPage />
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="settings"
+            element={
+              <AdminRoute>
+                <AdminSettingsPage />
               </AdminRoute>
             }
           />

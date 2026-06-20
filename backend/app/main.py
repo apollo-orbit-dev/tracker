@@ -8,6 +8,7 @@ from backend.app.routes import auth as auth_routes
 from backend.app.routes import health as health_routes
 from backend.app.routes import contacts as contacts_routes
 from backend.app.routes import metrics as metrics_routes
+from backend.app.routes import assignments as assignment_routes
 from backend.app.routes import cors as cors_routes
 from backend.app.routes import notes as notes_routes
 from backend.app.routes import dashboard as dashboard_routes
@@ -20,6 +21,9 @@ from backend.app.routes import taxonomy as taxonomy_routes
 from backend.app.routes import templates as templates_routes
 from backend.app.routes import view_columns as view_columns_routes
 from backend.app.routes import views as views_routes
+from backend.app.routes import admin_settings as admin_settings_routes
+from backend.app.routes import calendar as calendar_routes
+from backend.app.routes import events as events_routes
 
 app = FastAPI(title="Tracker", version="0.0.0")
 
@@ -38,6 +42,7 @@ app.include_router(taxonomy_routes.disciplines_router)
 app.include_router(templates_routes.router)
 app.include_router(projects_routes.router)
 app.include_router(cors_routes.router)
+app.include_router(assignment_routes.router)
 app.include_router(notes_routes.router)
 app.include_router(contacts_routes.router)
 app.include_router(project_contacts_routes.router)
@@ -49,3 +54,6 @@ app.include_router(view_columns_routes.router)
 app.include_router(views_routes.router)
 app.include_router(metrics_routes.router)
 app.include_router(saved_metrics_routes.router)
+app.include_router(calendar_routes.router)
+app.include_router(admin_settings_routes.router)
+app.include_router(events_routes.router)

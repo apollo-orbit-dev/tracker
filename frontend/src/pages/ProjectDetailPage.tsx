@@ -16,6 +16,7 @@ import {
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import {
+  ClipboardList,
   FileSignature,
   Flag,
   GripVertical,
@@ -28,6 +29,9 @@ import { Link, useNavigate, useParams } from "react-router"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/Badge"
+import { AssignmentDeleteDialog } from "@/components/AssignmentDeleteDialog"
+import { AssignmentSheet } from "@/components/AssignmentSheet"
+import { AssignmentStatusBadge } from "@/components/AssignmentStatusBadge"
 import { CORDeleteDialog } from "@/components/CORDeleteDialog"
 import { CORSheet } from "@/components/CORSheet"
 import { CORStatusBadge } from "@/components/CORStatusBadge"
@@ -51,6 +55,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { ApiError } from "@/api/auth"
+import { type Assignment, useAssignmentList } from "@/api/assignments"
 import { type COR, useCORList } from "@/api/cors"
 import {
   useNoteCreate,
@@ -537,6 +542,13 @@ export function ProjectDetailPage({
         {/* CORs */}
         <CORsCard pid={pid ?? ""} canEdit={canEdit} />
 
+        {/* Assignments */}
+        <AssignmentsCard
+          pid={pid ?? ""}
+          canEdit={canEdit}
+          milestones={(p.milestones ?? []).map((m) => ({ id: m.id, name: m.name }))}
+        />
+
         {/* Notes */}
         <NotesCard pid={pid ?? ""} currentUserId={user?.id ?? ""} isAdmin={isAdmin} />
 
@@ -852,6 +864,143 @@ function CORsCard({ pid, canEdit }: { pid: string; canEdit: boolean }) {
         onOpenChange={(open) => !open && setDeleting(null)}
         item={deleting}
         onDeleted={() => toast.success("COR deleted")}
+      />
+    </Panel>
+  )
+}
+
+function AssignmentsCard({
+  pid,
+  canEdit,
+  milestones,
+}: {
+  pid: string
+  canEdit: boolean
+  milestones: { id: string; name: string }[]
+}) {
+  const list = useAssignmentList(pid)
+  const [sheetOpen, setSheetOpen] = useState(false)
+  const [editing, setEditing] = useState<Assignment | null>(null)
+  const [deleting, setDeleting] = useState<Assignment | null>(null)
+
+  const items = list.data?.items ?? []
+
+  return (
+    <Panel
+      icon={ClipboardList}
+      title="Assignments"
+      subtitle="Work assigned to people who can view this project."
+      collapsible
+      action={
+        canEdit ? (
+          <Button
+            size="sm"
+            onClick={() => {
+              setEditing(null)
+              setSheetOpen(true)
+            }}
+          >
+            New assignment
+          </Button>
+        ) : undefined
+      }
+    >
+      <div className="p-4">
+        {list.isError && (
+          <Alert variant="destructive">
+            <AlertTitle>Couldn't load assignments</AlertTitle>
+            <AlertDescription>{list.error.detail}</AlertDescription>
+          </Alert>
+        )}
+        {list.isLoading ? (
+          <p className="text-sm text-muted-foreground">Loading…</p>
+        ) : items.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No assignments yet.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-muted-foreground">
+                  <th className="w-[140px] py-2 pr-3">Milestone</th>
+                  <th className="py-2 pr-3">Description</th>
+                  <th className="w-[140px] py-2 pr-3">Assignee</th>
+                  <th className="w-[110px] py-2 pr-3">Status</th>
+                  <th className="w-[110px] py-2 pr-3">Due</th>
+                  <th className="w-[40px] py-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((a) => (
+                  <tr key={a.id} className="border-t">
+                    <td className="py-2 pr-3 text-xs text-muted-foreground">
+                      {a.milestone_name ?? "—"}
+                    </td>
+                    <td className="py-2 pr-3">
+                      <span className="line-clamp-2 text-sm">
+                        {a.description}
+                      </span>
+                    </td>
+                    <td className="py-2 pr-3 text-xs">{a.assignee_name}</td>
+                    <td className="py-2 pr-3">
+                      <AssignmentStatusBadge status={a.status} />
+                    </td>
+                    <td className="py-2 pr-3 text-xs text-muted-foreground">
+                      {a.due_date ?? "—"}
+                    </td>
+                    <td className="py-2">
+                      {canEdit && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              aria-label={`Actions for ${a.description}`}
+                            >
+                              <MoreHorizontal className="size-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem
+                              onSelect={() => {
+                                setEditing(a)
+                                setSheetOpen(true)
+                              }}
+                            >
+                              Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              variant="destructive"
+                              onSelect={() => setDeleting(a)}
+                            >
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+      <AssignmentSheet
+        pid={pid}
+        open={sheetOpen}
+        onOpenChange={setSheetOpen}
+        milestones={milestones}
+        item={editing}
+        onSuccess={() =>
+          toast.success(editing ? "Assignment updated" : "Assignment created")
+        }
+      />
+      <AssignmentDeleteDialog
+        pid={pid}
+        open={deleting !== null}
+        onOpenChange={(open) => !open && setDeleting(null)}
+        item={deleting}
+        onSuccess={() => toast.success("Assignment deleted")}
       />
     </Panel>
   )

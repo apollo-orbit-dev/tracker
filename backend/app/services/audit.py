@@ -18,7 +18,7 @@ warning for that.
 import json
 import uuid
 from collections.abc import Iterable
-from datetime import date, datetime
+from datetime import date, datetime, time
 from decimal import Decimal
 from typing import Any
 
@@ -30,14 +30,17 @@ from backend.app.db.models import AuditLog, User
 def _json_default(value: Any) -> Any:
     """Coerce known-sensible-but-not-JSON-native types to strings.
 
-    Accepts `date`, `datetime`, and `Decimal` — the types that legitimately
-    appear in audited fields (milestone dates, COR amounts, etc.). Anything
-    else raises TypeError so we catch genuine schema mistakes early
-    rather than silently writing garbage.
+    Accepts `date`, `datetime`, `time`, `Decimal`, and `uuid.UUID` — the
+    types that legitimately appear in audited fields (milestone dates, event
+    start/end times, COR amounts, FK references like assignee/about-user ids,
+    etc.). Anything else raises TypeError so we catch genuine schema mistakes
+    early rather than silently writing garbage.
     """
-    if isinstance(value, (date, datetime)):
+    if isinstance(value, (date, datetime, time)):
         return value.isoformat()
     if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, uuid.UUID):
         return str(value)
     raise TypeError(f"unsupported audit-payload type: {type(value).__name__}")
 

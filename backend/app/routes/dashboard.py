@@ -53,6 +53,7 @@ from backend.app.schemas.dashboard import (
     MilestoneLookaheadItem,
     MilestoneLookaheadResponse,
 )
+from backend.app.services.project_scope import scoped_project_ids
 from backend.app.services.widget_config import ConfigError, validate_config
 
 # Default widget set for a newly-arrived user — (widget_type, width).
@@ -67,46 +68,8 @@ DEFAULT_WIDGETS: tuple[tuple[str, int], ...] = (
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
-
-def _scoped_project_ids_subquery(
-    db: Session,
-    user: User,
-    base_project_filter=None,
-    *,
-    department_id: uuid.UUID | None = None,
-    client_id: uuid.UUID | None = None,
-    discipline_id: uuid.UUID | None = None,
-):
-    """Build a SELECT of project ids the caller can see.
-
-    Returns a SQLAlchemy select() that other queries can use via IN(...).
-    `base_project_filter` is an extra WHERE clause applied to Project.
-    The dept/client/discipline kwargs (Phase 2.5) further narrow via the
-    Template JOIN — they don't bypass `accessible_department_ids`; if a
-    user's config points at a dept they lost access to, the
-    accessibility filter still wins and they see nothing.
-    """
-    allowed = accessible_department_ids(user)
-    q = (
-        select(Project.id)
-        .join(Template, Project.template_id == Template.id)
-        .where(Project.deleted_at.is_(None))
-    )
-    if base_project_filter is not None:
-        q = q.where(base_project_filter)
-    if allowed is not None:
-        if not allowed:
-            # Empty set — short-circuit by filtering on a never-true clause.
-            q = q.where(Project.id.is_(None))
-        else:
-            q = q.where(Template.department_id.in_(allowed))
-    if department_id is not None:
-        q = q.where(Template.department_id == department_id)
-    if client_id is not None:
-        q = q.where(Template.client_id == client_id)
-    if discipline_id is not None:
-        q = q.where(Template.discipline_id == discipline_id)
-    return q
+# Thin alias so existing call sites inside this file keep working unchanged.
+_scoped_project_ids_subquery = scoped_project_ids
 
 
 @router.get("/projects/lifecycle", response_model=LifecycleCounts)

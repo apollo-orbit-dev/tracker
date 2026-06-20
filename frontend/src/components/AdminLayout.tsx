@@ -5,6 +5,7 @@ import {
   Building2,
   Layers,
   LayoutTemplate,
+  Settings,
   ShieldCheck,
   Users,
 } from "lucide-react"
@@ -60,6 +61,7 @@ const STANDALONE: Item[] = [
   // Audit log lives outside the Taxonomy/Accounts groups — it's a
   // standalone monitoring tool, not a record-management surface.
   { to: "/admin/audit-log", label: "Audit log", icon: Activity },
+  { to: "/admin/settings", label: "Settings", icon: Settings, requireRole: "admin" },
 ]
 
 /**

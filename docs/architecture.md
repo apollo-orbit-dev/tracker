@@ -1,7 +1,7 @@
 # Architecture
 
 ## Current state
-Pilot-approved POC, built through **Phase 7 (Custom Views)** and tagged `v0.7.0`. The stack below is in production-shape use, not a proposal. Core domain (auth, RBAC with dept-scoped visibility, taxonomy, templates, projects/milestones/CORs/notes/contacts/role-assignments, audit log), user dashboards, per-template Saved Views (with spreadsheet import/export), and Custom Views are all shipped and tested (~726 backend + ~330 frontend). See the **Data model overview** and **Custom Views** sections below for the built shape. The original Phase 0/1/2+ roadmap at the end of this file is kept for historical context only.
+Pilot-approved POC, built through **Phase 15 (Multi-day events)** and tagged `v0.7.0`. The stack below is in production-shape use, not a proposal. Core domain (auth, RBAC with dept-scoped visibility, taxonomy, templates, projects/milestones/CORs/notes/contacts/role-assignments/assignments, audit log), user dashboards, per-template Saved Views (with spreadsheet import/export), Custom Views, the Calendar view, US holiday display (admin-controlled via the app-settings mechanism), custom recurring events, and multi-day event spans are all shipped and tested (~822 backend + ~373 frontend). See the **Data model overview**, **Custom Views**, **Calendar**, **App settings + Holidays**, and **Custom recurring events** sections below for the built shape. The original Phase 0/1/2+ roadmap at the end of this file is kept for historical context only.
 
 ## Proposed stack
 
@@ -73,6 +73,7 @@ This is the high-level shape, not the final schema. Phase 1 sub-phases will refi
 - `contacts` — reusable POC records (name, email, phone, org)
 - `project_contacts` — many-to-many between projects and contacts, with role label
 - `project_role_assignments` — many-to-many between projects and users with role label (Lead, Designer, Checker, QA, etc.), allowing multiple users per role
+- `assignments` — per project; optional-milestone + assignee + status + due date; assignee restricted to users who can already view the project (no new visibility surface)
 
 **System**
 - `audit_log` — entity_type, entity_id, field_name, old_value, new_value, changed_by, changed_at. Field-level history for budget/date/status fields; entity-level for others.
@@ -309,6 +310,156 @@ metrics, and breakdown columns. It lists the owner's saved metrics
 re-validated by the preview/save paths), offers per-metric delete,
 and a "Save current as…" dialog that POSTs the builder's current
 draft.
+
+---
+
+## Calendar (Phase 12)
+
+A `/calendar` page in the main sidebar showing dept-scoped project events in two views: a **month grid** and an **agenda list**, toggled via a Segmented control in the toolbar.
+
+**Endpoint:** `GET /api/calendar/items` — returns a flat discriminated list of `CalendarItem` objects (milestone or assignment). Query params:
+- `start` / `end` (required ISO date strings) — the visible date range; span capped at 92 days (≈ 3 months)
+- `types` (optional, default both) — `milestone`, `assignment`, or both
+- Dept / Client / Discipline filters (same DCD params as the dashboard)
+
+Milestones appear on their `planned_date` (completed ones rendered muted). Assignments appear on their `due_date`. Both are dept-scoped using the shared `scoped_project_ids` helper (see below); soft-deleted projects, milestones, and assignments are excluded.
+
+**Shared `scoped_project_ids` helper (`backend/app/services/project_scope.py`):** Extracted from the dashboard's per-widget scoping in Phase 12.1. Returns the set of project IDs visible to the calling user under their **department scope only** — direct-share-only projects are intentionally excluded, matching the dashboard's long-standing behavior. Both the dashboard endpoint and the calendar endpoint call this helper — one scoping implementation, two consumers.
+
+**Frontend (`frontend/src/pages/CalendarPage.tsx` + `frontend/src/components/calendar/*`):**
+- `CalendarToolbar` — date-range navigation (prev/next month), Month/Agenda toggle, DCD dropdowns (reusing the dashboard's `useDepartments` / `useClients` / `useDisciplines` hooks), and Milestones / Assignments type-filter checkboxes.
+- `MonthGrid` — 5- or 6-row month grid; each day cell lists its items as truncated chips with tone-coded dots (milestones vs. assignments). Clicking a chip opens the detail Sheet.
+- `AgendaList` — chronological flat list of the same items, grouped by date. Same chip design, same Sheet trigger.
+- `CalendarDetailSheet` — read-only Sheet showing a clicked item's title, project name, direction (milestones) or status (assignments), date, and — for milestones — a list of the milestone's assignments sourced from `useAssignmentList`. An "Open project" link navigates to the project detail page.
+
+**New frontend dependency:** `date-fns` — date arithmetic (month-grid generation, agenda grouping, range clamping). Added in Phase 12.3.
+
+**No DB migration this phase.** The calendar is a purely additive read API over existing tables. No schema changes.
+
+---
+
+## App settings + Holidays (Phase 13)
+
+### App-settings mechanism
+
+A general-purpose key/value table (`app_settings`) stores org-wide configuration flags. Added by migration `0025_app_settings`.
+
+**Schema (`app_settings`):** `key` (TEXT, primary key), `value` (JSONB), `updated_at`, `updated_by_user_id` (FK → users). Single row per key; upsert semantics via the `set_setting` service function.
+
+**Service (`backend/app/services/app_settings.py`):** `get_setting(db, key, default)` returns the stored JSONB value or `default`; `set_setting(db, key, value, user)` upserts and records an audit-log entry (`entity_type="app_setting"`, `entity_id=uuid5(NAMESPACE_URL, f"app_setting:{key}")` — deterministic so audit history is continuous across upserts).
+
+**Routes (`backend/app/routes/admin_settings.py`):**
+- `GET /api/admin/settings/{key}` — org-admin only (`require_role("admin")`); returns `{key, value}` or 404.
+- `PUT /api/admin/settings/{key}` — org-admin only; body is validated against a per-key shape whitelist (Pydantic discriminated union on `key`); audited. The `holidays` key validates `{enabled: bool, countries: list[str]}` with a `SUPPORTED_HOLIDAY_COUNTRIES = {"US"}` whitelist on the countries list.
+
+Migration `0025` also extended the `audit_log.entity_type` CHECK constraint to include `"app_setting"`.
+
+### Holidays feature
+
+**Backend (`backend/app/services/holiday_calendar.py` + additions to `backend/app/routes/calendar.py`):**
+- Uses the `holidays` Python library (added to `pyproject.toml` + `docs/setup.md`) to generate holiday dates server-side; no admin-maintained holiday table.
+- `holiday_items(start, end, setting)` generates `CalendarHolidayItem` objects for the date range given the stored setting value (enabled flag + countries list). When the setting is disabled or not set, returns an empty list.
+- `GET /api/calendar/holidays` — requires auth (any role) but is NOT dept-scoped; returns `{items: [CalendarHolidayItem]}`. Query params `start`/`end` (ISO date strings, required, span ≤ 92 days). This endpoint reads the `holidays` setting and returns applicable holidays to any authenticated user. It was deliberately kept separate from `GET /api/calendar/items` because holidays are global org context, not dept-scoped project data.
+- `CalendarHolidayItem` shape: `{date: str (ISO), name: str, country: str}`. Intentionally NOT part of the `CalendarItem` union used by the items endpoint.
+
+**Frontend:**
+- `CalendarPage.tsx` fetches `GET /api/calendar/holidays` for the visible month range alongside the existing items fetch (via `useCalendarHolidays` hook in `frontend/src/api/calendar.ts`).
+- `MonthGrid.tsx` and `AgendaList.tsx` render holidays as a faint day tint (`bg-muted/30`) + a muted non-clickable label (not wrapped in a button; no chip click handler). Holidays are intentionally non-clickable — they carry no project data.
+- `CalendarToolbar.tsx` gains a "Holidays" toggle that shows/hides the holiday layer without re-fetching (`showHolidays: boolean` state in `CalendarFilters`).
+- `frontend/src/types/calendar.ts` defines `CalendarHolidayItem` as a distinct type, not part of the `CalendarItem` discriminated union.
+
+**Admin Settings page (`frontend/src/pages/admin/AdminSettingsPage.tsx`):**
+- New admin-only route at `/admin/settings` (added to `AdminLayout.tsx`'s `STANDALONE` nav array and to `frontend/src/App.tsx` under `<AdminRoute>`).
+- Uses `useAppSetting("holidays")` / `useUpdateAppSetting("holidays")` hooks (in `frontend/src/api/admin_settings.ts`) backed by the `GET`/`PUT /api/admin/settings/holidays` endpoints.
+- Renders a single "Show US holidays" toggle. Saving calls `PUT /api/admin/settings/holidays` with `{enabled, countries: ["US"]}`. Non-admins have no access to this page (routed behind `<AdminRoute>`).
+
+---
+
+## Custom recurring events (Phase 14)
+
+User-created events on the calendar, scoped to a department. Events can be one-off or recurring (daily, weekly, monthly-by-weekday, monthly-by-date), and support per-occurrence overrides (cancel, reschedule, title/time edit) without pre-materializing rows.
+
+### Data model
+
+Two new tables added by migration `0026_events`:
+
+**`events`** — the master series record:
+- `id` (UUID PK), `department_id` (FK → departments), `title` (≤200), `description` (TEXT, nullable)
+- `start_date` (DATE) — the first occurrence date
+- `all_day` (BOOL, default true), `start_time` / `end_time` (TIME, nullable — ignored when `all_day`)
+- `recurrence` (JSONB, nullable) — a `RecurrenceConfig` dict when the event repeats; NULL for one-off events
+- `about_user_id` (FK → users, nullable) — for "PTO: Alice"-style events
+- Standard soft-delete columns (`deleted_at`, `deleted_by`)
+
+**`event_occurrence_overrides`** — one row per modified or cancelled occurrence:
+- `(event_id, original_date)` composite PK — keyed on the originally-scheduled date
+- `is_cancelled` (BOOL) — when true the occurrence is suppressed; all other fields ignored
+- `override_date` (DATE, nullable) — rescheduled date; NULL means same as `original_date`
+- `title`, `description`, `all_day`, `start_time`, `end_time` — nullable; NULL means inherit from the series
+
+Migration 0026 also extended the `audit_log.entity_type` CHECK constraint to include `"event"`.
+
+### Recurrence engine (`backend/app/services/event_calendar.py`)
+
+- **`validate_recurrence(config)`** — validates a `RecurrenceConfig` dict at the route boundary: `freq` must be one of `daily`, `weekly`, `monthly_by_weekday`, `monthly_by_date`; `interval` 1–52; `count` 1–366 (mutually exclusive with `until`); `until` a future ISO date string; `byweekday` integers 0–6 (Mon=0). Raises `422` on any invalid field.
+- **`expand_one(event, overrides, start, end) → list[OccurrenceResult]`** — expand-on-read: calls `dateutil.rrule` to generate raw occurrence dates within the window, then merges override rows (suppressing cancelled occurrences, applying moved/edited fields). Capped at **366 occurrences per event per range** — a runaway rule can never return unbounded rows. One-off events (`recurrence is None`) return at most one occurrence (the `start_date`, if it falls in range).
+
+The engine is **stateless and read-only**: no occurrence rows are persisted unless an override is explicitly recorded. This means series-level edits (change the recurrence rule or title) propagate immediately to all future occurrences without a backfill job.
+
+`python-dateutil` is now a direct backend dependency (added to `pyproject.toml`).
+
+### Endpoints
+
+**Series CRUD (`backend/app/routes/events.py`):**
+- `GET /api/events` — list all non-deleted events accessible to the caller (viewer+, dept-scoped)
+- `POST /api/events` — create a new series; requires project-editor+ in the event's department (`assert_can_edit_dept`); audit-logged
+- `GET /api/events/{id}` — fetch one series (viewer+, dept-scoped)
+- `PATCH /api/events/{id}` — update series fields/recurrence; project-editor+ only; audit-logged
+- `DELETE /api/events/{id}` — soft-delete the series and all its overrides; project-editor+ only; audit-logged
+
+**Occurrence overrides (`backend/app/routes/events.py`):**
+- `POST /api/events/{id}/occurrences/{date}/cancel` — mark one occurrence as cancelled (creates or updates an override row with `is_cancelled=true`); project-editor+ only
+- `PATCH /api/events/{id}/occurrences/{date}` — modify one occurrence (upsert override row with field overrides); project-editor+ only
+
+**Calendar expansion (`backend/app/routes/calendar.py`):**
+- `GET /api/calendar/events` — returns a `CalendarEventsResponse` of `CalendarEventItem` objects for the visible date range. Dept-scoped: the caller's `accessible_department_ids` is the hard ceiling; the optional `department_id` query param can only narrow. Viewer+ read. Calls `expand_one` for each matching series row with the requested range.
+
+`CalendarEventItem` shape: `{ event_id, original_date, date, end_date, title, description, all_day, start_time, end_time, about_user_name, is_recurring, is_override }`. The `is_override` flag lets the frontend render a visual hint when an occurrence has been moved. `end_date` equals `date` for single-day events; for multi-day events it carries the span end (see Phase 15 below).
+
+### Frontend
+
+**`RecurrenceBuilder` (`frontend/src/components/calendar/RecurrenceBuilder.tsx`):** Controlled component that builds a `RecurrenceConfig` object. Renders frequency select (None / Daily / Weekly / Monthly), interval input, weekday checkboxes (weekly only), day-of-month select (monthly-by-date), and end condition (forever / after N occurrences / until date). A `recurrenceSummary(config)` util produces a one-line human-readable description ("Weekly on Mon, Wed · until Dec 31, 2026").
+
+**`EventSheet` (`frontend/src/components/calendar/EventSheet.tsx`):** Create / edit-series / edit-this-occurrence sheet. Mirrors `AssignmentSheet` in structure. When `editOccurrenceOnly=true`, the sheet sends a `PATCH /api/events/{id}/occurrences/{date}` with only the override fields (series recurrence fields are hidden). Series create/edit requires `start_date`; occurrence-only edit does not.
+
+**`EventDetailSheet` (`frontend/src/components/calendar/EventDetailSheet.tsx`):** Read-only Sheet showing title, formatted date, time (or "All day"), about-user name, a "Repeats" row if `is_recurring`, and description. Edit + Delete buttons visible only to project-editor+ (gated via `useAuth` + `hasRole`).
+
+**`EventScopeDialog` (`frontend/src/components/calendar/EventScopeDialog.tsx`):** AlertDialog shown when a user edits or deletes a recurring event. Offers "This occurrence" vs. "Entire series" with destructive styling on the series button for deletes.
+
+**Calendar rendering (`frontend/src/pages/CalendarPage.tsx`, `frontend/src/components/calendar/*`):**
+- A `useCalendarEvents` hook fetches `GET /api/calendar/events` for the visible month range.
+- Events render as **violet chips** (distinct from milestone teal/blue and assignment amber) with a repeat icon when `is_recurring`.
+- An **Events toggle** in `CalendarToolbar` shows/hides the event layer without re-fetching.
+- A **`+ Event` button** in the toolbar (project-editor+ only) opens `EventSheet` for create.
+- Clicking an event chip opens `EventDetailSheet`. From there, Edit on a recurring event triggers `EventScopeDialog` before opening `EventSheet`; Delete on a recurring event triggers `EventScopeDialog` before calling cancel/delete.
+
+---
+
+## Multi-day event spans (Phase 15)
+
+Phase 15 extends Phase 14 custom events with an optional `end_date` so an event can span multiple days (e.g. PTO Mon–Fri). All-day scope only.
+
+**Schema change:** Migration `0027_event_end_date` adds a nullable `end_date DATE` column to the `events` table. When `null`, the event is single-day (span end equals `start_date`). Validation: if present, `end_date >= start_date` (backend returns 422; frontend blocks submit).
+
+**Recurrence and occurrence overrides:** A span duration `D = (end_date - start_date).days` (0 when `end_date` is null) is preserved across recurrence occurrences. An occurrence starting at `os` spans `[os, os + D]`. A moved (override) occurrence also keeps the same duration — the override records the new start; the end is computed as `override_date + D`. Cancel drops the whole span.
+
+**Expansion (`backend/app/services/event_calendar.py`):** `expand_one` now computes `D` per series and widens the rrule candidate window back by `D` days so that spans starting before the query window but overlapping it are included. An occurrence is included if `os <= window_end AND span_end >= window_start`. The ≤366-occurrences-per-event-per-range cap still applies (occurrence count, not day count).
+
+**`CalendarEventItem`:** carries `end_date: date` (equals `date` for single-day events). The calendar route maps `occ.end_date` through.
+
+**Frontend rendering:** `MonthGrid` places each event on every day within `[date, end_date]` that falls in the visible grid. Continuation days (where `dd !== item.date`) receive a subtle leading marker (`›`) and reduced opacity so they read as continuation, not new events. `AgendaList` guards against null `end_date` when computing span overlap. `EventDetailSheet` shows the date range (e.g. "Jun 10 – Jun 14") when `end_date` differs from `date`. `EventSheet` gains an "End date (optional)" `Input type="date"` field (shown in series create/edit mode only; hidden in occurrence-edit mode like `start_date`).
+
+**Deferred:** "This and following" occurrence split (a series split at a future occurrence while preserving past occurrences); spanning-bar calendar rendering (events as a continuous horizontal bar rather than per-day chips).
 
 ---
 

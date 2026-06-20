@@ -1,5 +1,5 @@
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, time
 
 from sqlalchemy import (
     CheckConstraint,
@@ -632,6 +632,126 @@ class COR(Base):
     )
 
 
+# ---- assignments ---------------------------------------------------------
+
+ASSIGNMENT_STATUSES: frozenset[str] = frozenset(
+    {"open", "in_progress", "done", "cancelled"}
+)
+
+
+class Assignment(Base):
+    __tablename__ = "assignments"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('open','in_progress','done','cancelled')",
+            name="assignment_status_valid",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    milestone_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("milestones.id"),
+        nullable=True,
+    )
+    assignee_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id"),
+        nullable=False,
+        index=True,
+    )
+    description: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String, nullable=False, default="open", server_default="open", index=True
+    )
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    deleted_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
+    )
+
+    assignee: Mapped["User"] = relationship(foreign_keys=[assignee_user_id])
+    milestone: Mapped["Milestone | None"] = relationship()
+
+
+# ---- events (Phase 14) ---------------------------------------------------
+
+from sqlalchemy import Time  # noqa: E402
+
+
+class Event(Base):
+    __tablename__ = "events"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    department_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("departments.id"), nullable=False, index=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    about_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    description: Mapped[str | None] = mapped_column(String, nullable=True)
+    all_day: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    start_time: Mapped[time | None] = mapped_column(Time, nullable=True)
+    end_time: Mapped[time | None] = mapped_column(Time, nullable=True)
+    start_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    recurrence: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+
+    about_user: Mapped["User | None"] = relationship(foreign_keys=[about_user_id])
+    overrides: Mapped[list["EventOccurrenceOverride"]] = relationship(
+        back_populates="event", cascade="all, delete-orphan")
+
+
+class EventOccurrenceOverride(Base):
+    __tablename__ = "event_occurrence_overrides"
+    __table_args__ = (
+        CheckConstraint("status IN ('cancelled','modified')", name="event_override_status_valid"),
+        UniqueConstraint("event_id", "original_date", name="uq_event_override_occurrence"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("events.id", ondelete="CASCADE"), nullable=False, index=True)
+    original_date: Mapped[date] = mapped_column(Date, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    override_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    override_title: Mapped[str | None] = mapped_column(String, nullable=True)
+    override_description: Mapped[str | None] = mapped_column(String, nullable=True)
+    override_all_day: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    override_start_time: Mapped[time | None] = mapped_column(Time, nullable=True)
+    override_end_time: Mapped[time | None] = mapped_column(Time, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    event: Mapped["Event"] = relationship(back_populates="overrides")
+
+
 # ---- notes ---------------------------------------------------------------
 
 
@@ -962,7 +1082,7 @@ class AuditLog(Base):
         CheckConstraint(
             "entity_type IN ("
             "'project', 'milestone', 'cor', 'note', "
-            "'user_role', 'project_role_assignment'"
+            "'user_role', 'project_role_assignment', 'assignment', 'app_setting', 'event'"
             ")",
             name="entity_type_valid",
         ),
@@ -993,6 +1113,22 @@ class AuditLog(Base):
     )
     changed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class AppSetting(Base):
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String, primary_key=True)
+    value: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
     )
 
 

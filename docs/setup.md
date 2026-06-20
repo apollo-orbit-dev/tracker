@@ -30,7 +30,7 @@ make install
 
 `make install` does:
 - `python3 -m venv .venv` at repo root
-- `.venv/bin/pip install -e ".[dev]"` (FastAPI, SQLAlchemy, Alembic, Pydantic, argon2-cffi, psycopg, plus pytest/httpx/ruff)
+- `.venv/bin/pip install -e ".[dev]"` (FastAPI, SQLAlchemy, Alembic, Pydantic, argon2-cffi, psycopg, `holidays` for calendar holiday display, `python-dateutil` for custom event recurrence expansion, plus pytest/httpx/ruff)
 - `cd frontend && npm install` (React 19, Vite, Tailwind v4, TanStack Query, Vitest, testing-library)
 
 Note: `make install` is only needed for the native dev workflow and `make test`. The dockerised stack (`make up`) builds its own image-side venv and node_modules.

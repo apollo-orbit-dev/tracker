@@ -16,6 +16,8 @@ dependencies = [
     "email-validator>=2.0",
     "python-multipart>=0.0.7",
     "openpyxl>=3.1",
+    "holidays>=0.50",
+    "python-dateutil>=2.9",
 ]
 
 [project.optional-dependencies]

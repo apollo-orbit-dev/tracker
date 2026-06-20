@@ -184,6 +184,10 @@ describe("AppLayout", () => {
     expect(
       screen.queryByRole("link", { name: /project overviews/i }),
     ).not.toBeInTheDocument()
+    // 12.3: Calendar link in top nav group.
+    const calendarLink = screen.getByRole("link", { name: /^calendar$/i })
+    expect(calendarLink).toBeInTheDocument()
+    expect(calendarLink.getAttribute("href")).toBe("/calendar")
     expect(
       screen.getByRole("link", { name: /user settings/i }),
     ).toBeInTheDocument()

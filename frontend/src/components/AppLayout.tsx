@@ -1,4 +1,5 @@
 import {
+  Calendar,
   Eye,
   LayoutDashboard,
   ListTodo,
@@ -70,6 +71,12 @@ const TOP_ITEMS: Item[] = [
     label: "Projects",
     to: "/projects",
     icon: ListTodo,
+    visible: () => true,
+  },
+  {
+    label: "Calendar",
+    to: "/calendar",
+    icon: Calendar,
     visible: () => true,
   },
 ]
