@@ -168,6 +168,24 @@ describe("MonthGrid", () => {
     expect(onDayClick).toHaveBeenCalledWith("2026-07-15")
   })
 
+  it("day cells are not clickable when onDayClick is omitted (e.g. viewers)", async () => {
+    render(
+      <MonthGrid
+        month={new Date("2026-07-15")}
+        items={[]}
+        holidays={[]}
+        events={[]}
+        onSelect={vi.fn()}
+        onEventSelect={vi.fn()}
+      />,
+    )
+    const cell = screen.getByText("15").closest("div[data-day]") as HTMLElement
+    // No clickable affordance, and clicking is a no-op (does not throw).
+    expect(cell.className).toContain("cursor-default")
+    expect(cell.className).not.toContain("cursor-pointer")
+    await userEvent.click(cell)
+  })
+
   it("clicking an event chip does NOT call onDayClick (stopPropagation)", async () => {
     const onDayClick = vi.fn()
     const onEventSelect = vi.fn()

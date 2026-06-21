@@ -107,8 +107,11 @@ export function RosterPage() {
           />
         </div>
         <span className="ml-auto rounded-md border bg-muted/40 px-2.5 py-1 text-xs text-muted-foreground">
-          <span className="font-medium text-foreground">{items.length}</span>{" "}
-          {items.length === 1 ? "grant" : "grants"}
+          <span className="font-medium text-foreground">{items.length}</span>
+          {search.trim() && items.length !== allItems.length ? (
+            <> of {allItems.length}</>
+          ) : null}{" "}
+          {allItems.length === 1 ? "grant" : "grants"}
         </span>
       </div>
 

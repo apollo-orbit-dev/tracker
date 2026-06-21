@@ -1,16 +1,15 @@
 import {
   Calendar,
+  ClipboardList,
   Eye,
   LayoutDashboard,
   ListTodo,
   MoreHorizontal,
-  Moon,
   Plus,
   Rows3,
   Settings2,
   Shield,
   SquareDashedKanban,
-  Sun,
   Users,
 } from "lucide-react"
 import { useState } from "react"
@@ -43,6 +42,7 @@ import {
 } from "@/components/ui/sidebar"
 import { useTemplateList } from "@/api/templates"
 import { type CustomView, useViewCreate, useViews } from "@/api/views"
+import { type FormListItem, useFormList } from "@/api/forms"
 import { useAuth, useLogout } from "@/hooks/useAuth"
 import { useCommandPalette } from "@/hooks/useCommandPalette"
 import { useDensity } from "@/hooks/useDensity"
@@ -206,6 +206,48 @@ function NavItem({ item, roles }: { item: Item; roles: ReadonlyArray<string> }) 
   )
 }
 
+// Phase 17: Forms sidebar item — its own section (matches the mockup),
+// active on an exact /forms/{id} path match so only the open form lights up.
+// Draft forms (editor-only) get a hollow icon to read as not-yet-published.
+function FormNavItem({ form }: { form: FormListItem }) {
+  const location = useLocation()
+  const isActive = location.pathname === `/forms/${form.id}`
+  return (
+    <SidebarMenuItem>
+      <NavLink to={`/forms/${form.id}`} className="contents">
+        <SidebarMenuButton
+          isActive={isActive}
+          tooltip={form.name}
+          className={NAV_ITEM_CLASS}
+        >
+          <ClipboardList className="size-4" />
+          <span className="truncate">{form.name}</span>
+          {/* #49: pending-review count for reviewers. Active forms only (you
+              can't submit to a draft), so it never collides with the draft pill. */}
+          {form.pending_count > 0 && (
+            <span
+              className="ml-auto inline-flex min-w-4 items-center justify-center rounded-full px-1.5 text-[10px] font-semibold tabular-nums"
+              style={{
+                backgroundColor: "hsl(var(--tone-amber-bg))",
+                color: "hsl(var(--tone-amber-fg))",
+              }}
+              aria-label={`${form.pending_count} submission${form.pending_count === 1 ? "" : "s"} awaiting review`}
+              title={`${form.pending_count} awaiting review`}
+            >
+              {form.pending_count}
+            </span>
+          )}
+          {form.status === "draft" && (
+            <span className="ml-auto text-[10px] uppercase tracking-wide text-[hsl(var(--subtle-fg))]">
+              draft
+            </span>
+          )}
+        </SidebarMenuButton>
+      </NavLink>
+    </SidebarMenuItem>
+  )
+}
+
 export function AppLayout() {
   const { data: user } = useAuth()
   const logout = useLogout()
@@ -218,6 +260,9 @@ export function AppLayout() {
   // 7.3: custom views — user-composed pages under the same group.
   const customViews = useViews()
   const createView = useViewCreate()
+  // Phase 17: Forms — its own sidebar section (active forms for everyone,
+  // plus drafts for editors, per the dept-scoped list endpoint).
+  const forms = useFormList()
   const navigate = useNavigate()
   const [collapsed, setCollapsed] = useLocalStorage<boolean>(
     "tracker.sidebarCollapsed",
@@ -304,6 +349,42 @@ export function AppLayout() {
             </SidebarGroupContent>
           </SidebarGroup>
 
+          {/* Phase 17: Forms — its own section mirroring the mockup. Lists
+              the dept-scoped forms; the "+" (editors only) jumps to the
+              Forms index where the New-form dialog lives. */}
+          <SidebarGroup className="group-data-[collapsible=icon]:hidden">
+            <div className="flex items-center justify-between pr-1">
+              {/* The label links to the Forms index so everyone has a way there. */}
+              <SidebarGroupLabel asChild>
+                <NavLink to="/forms" className="hover:text-foreground transition-colors">
+                  Forms
+                </NavLink>
+              </SidebarGroupLabel>
+              {hasRole(roles, "project_editor") && (
+                <button
+                  type="button"
+                  aria-label="New form"
+                  onClick={() => navigate("/forms")}
+                  className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                >
+                  <Plus className="size-3.5" />
+                </button>
+              )}
+            </div>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {(forms.data?.items ?? []).map((f) => (
+                  <FormNavItem key={f.id} form={f} />
+                ))}
+                {(forms.data?.items ?? []).length === 0 && (
+                  <p className="px-2 py-1 text-xs text-muted-foreground">
+                    No forms yet.
+                  </p>
+                )}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+
           <SidebarGroup className="mt-auto">
             <SidebarGroupContent>
               <SidebarMenu>
@@ -329,23 +410,8 @@ export function AppLayout() {
               <MoreHorizontal className="size-4 shrink-0 text-muted-foreground group-data-[collapsible=icon]:hidden" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                onClick={() =>
-                  setTheme(theme === "dark" ? "light" : "dark")
-                }
-              >
-                {theme === "dark" ? (
-                  <>
-                    <Sun className="size-4" />
-                    Light theme
-                  </>
-                ) : (
-                  <>
-                    <Moon className="size-4" />
-                    Dark theme
-                  </>
-                )}
-              </DropdownMenuItem>
+              {/* Theme toggle lives in the Topbar (always visible) — no
+                  duplicate here. */}
               <DropdownMenuItem
                 onClick={() =>
                   setDensity(density === "compact" ? "comfortable" : "compact")

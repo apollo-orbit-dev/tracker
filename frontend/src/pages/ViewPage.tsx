@@ -21,10 +21,11 @@ import {
   rectSortingStrategy,
   sortableKeyboardCoordinates,
 } from "@dnd-kit/sortable"
-import { Check, Copy, Pencil, Share2 } from "lucide-react"
+import { Check, Copy, MoreHorizontal, Pencil, Share2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { ApiError } from "@/api/auth"
+import { useTopbarCrumbs } from "@/hooks/useTopbarCrumbs"
 import { useManageableDepartments } from "@/api/me"
 import {
   type ChartBlockConfig,
@@ -162,6 +163,10 @@ export function ViewPage() {
     [order, configuringId],
   )
 
+  useTopbarCrumbs(
+    useMemo(() => [{ label: view?.name ?? "View" }], [view?.name]),
+  )
+
   if (views.isLoading || blocksQ.isLoading) {
     return <p className="px-6 py-7 text-sm text-muted-foreground">Loading…</p>
   }
@@ -199,9 +204,9 @@ export function ViewPage() {
                 ariaLabel="Rename view"
               />
             ) : (
-              <h2 className="text-xl font-semibold tracking-tight">
+              <h1 className="text-xl font-semibold tracking-tight">
                 {view.name}
-              </h2>
+              </h1>
             )}
             {view.published_department_code && (
               <Badge tone="indigo">
@@ -247,14 +252,27 @@ export function ViewPage() {
             </Button>
           ) : (
             <>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => setDeleting(true)}
-              >
-                Delete view
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-8"
+                    aria-label="View actions"
+                  >
+                    <MoreHorizontal className="size-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onSelect={() => setDeleting(true)}
+                  >
+                    Delete view
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button type="button" variant="outline" size="sm">

@@ -4,6 +4,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { MemoryRouter } from "react-router"
 import { vi } from "vitest"
 
+import { TopbarProvider } from "@/components/topbar/TopbarContext"
+
 type Options = {
   route?: string
 }
@@ -16,7 +18,9 @@ export function renderWithProviders(ui: ReactNode, { route = "/" }: Options = {}
     queryClient,
     ...render(
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={[route]}>{ui}</MemoryRouter>
+        <MemoryRouter initialEntries={[route]}>
+          <TopbarProvider>{ui}</TopbarProvider>
+        </MemoryRouter>
       </QueryClientProvider>,
     ),
   }

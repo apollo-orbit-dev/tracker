@@ -31,9 +31,9 @@ const GROUPS: Group[] = [
   {
     label: "Taxonomy",
     items: [
-      { to: "/admin/departments", label: "Departments", icon: Building2 },
-      { to: "/admin/clients", label: "Clients", icon: Briefcase },
-      { to: "/admin/disciplines", label: "Disciplines", icon: Layers },
+      { to: "/admin/departments", label: "Departments", icon: Building2, requireRole: "admin" },
+      { to: "/admin/clients", label: "Clients", icon: Briefcase, requireRole: "admin" },
+      { to: "/admin/disciplines", label: "Disciplines", icon: Layers, requireRole: "admin" },
       {
         to: "/admin/templates",
         label: "Templates",
@@ -45,14 +45,14 @@ const GROUPS: Group[] = [
   {
     label: "Accounts",
     items: [
-      { to: "/admin/users", label: "Users", icon: Users },
+      { to: "/admin/users", label: "Users", icon: Users, requireRole: "admin" },
       {
         to: "/admin/roster",
         label: "Roster",
         icon: ShieldCheck,
         requireRole: "department_manager",
       },
-      { to: "/admin/contacts", label: "Contacts", icon: BookUser },
+      { to: "/admin/contacts", label: "Contacts", icon: BookUser, requireRole: "admin" },
     ],
   },
 ]
@@ -60,7 +60,7 @@ const GROUPS: Group[] = [
 const STANDALONE: Item[] = [
   // Audit log lives outside the Taxonomy/Accounts groups — it's a
   // standalone monitoring tool, not a record-management surface.
-  { to: "/admin/audit-log", label: "Audit log", icon: Activity },
+  { to: "/admin/audit-log", label: "Audit log", icon: Activity, requireRole: "admin" },
   { to: "/admin/settings", label: "Settings", icon: Settings, requireRole: "admin" },
 ]
 
@@ -98,7 +98,9 @@ export function AdminLayout() {
           )
         })}
         <nav className="space-y-1">
-          {STANDALONE.map((it) => (
+          {STANDALONE.filter(
+            (it) => !it.requireRole || hasRole(roles, it.requireRole),
+          ).map((it) => (
             <AdminNavLink key={it.to} item={it} />
           ))}
         </nav>

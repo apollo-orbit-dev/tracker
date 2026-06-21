@@ -234,7 +234,7 @@ export function AuditLogPage() {
             placeholder="(any project)"
           />
         </div>
-        <div>
+        <div className="sm:col-span-2">
           <label className="text-xs font-medium text-muted-foreground">
             From
           </label>
@@ -246,7 +246,7 @@ export function AuditLogPage() {
             }
           />
         </div>
-        <div>
+        <div className="sm:col-span-2">
           <label className="text-xs font-medium text-muted-foreground">
             To
           </label>

@@ -74,6 +74,12 @@ from backend.app.services.custom_field_values import (
     merge_values,
     validate_values,
 )
+from backend.app.services.project_create import (
+    ProjectNumberConflict,
+    create_project_record,
+    live_field_defs as _live_field_defs,
+    live_milestone_defs as _live_milestone_defs,
+)
 from backend.app.services.lifecycle import (
     LifecycleError,
     assert_transition_allowed,
@@ -248,38 +254,6 @@ def _fetch_template(db: Session, tid: uuid.UUID) -> Template:
             status_code=422, detail="Template not found or soft-deleted"
         )
     return obj
-
-
-def _live_field_defs(db: Session, template_id: uuid.UUID) -> list[TemplateFieldDef]:
-    return (
-        db.execute(
-            select(TemplateFieldDef)
-            .where(
-                TemplateFieldDef.template_id == template_id,
-                TemplateFieldDef.deleted_at.is_(None),
-            )
-            .order_by(TemplateFieldDef.order_index.asc())
-        )
-        .scalars()
-        .all()
-    )
-
-
-def _live_milestone_defs(
-    db: Session, template_id: uuid.UUID
-) -> list[TemplateMilestoneDef]:
-    return (
-        db.execute(
-            select(TemplateMilestoneDef)
-            .where(
-                TemplateMilestoneDef.template_id == template_id,
-                TemplateMilestoneDef.deleted_at.is_(None),
-            )
-            .order_by(TemplateMilestoneDef.order_index.asc())
-        )
-        .scalars()
-        .all()
-    )
 
 
 def _live_milestones(db: Session, project_id: uuid.UUID) -> list[Milestone]:
@@ -737,59 +711,21 @@ def create_project(
 ) -> ProjectDetailOut:
     template = _fetch_template(db, payload.template_id)
     assert_can_edit_dept(user, template.department_id)
-    field_defs = _live_field_defs(db, template.id)
     try:
-        validate_values(payload.custom_field_values, field_defs)
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=e.reasons)
-
-    project = Project(
-        project_number=payload.project_number,
-        client_project_number=payload.client_project_number,
-        title=payload.title,
-        template_id=template.id,
-        custom_field_values=payload.custom_field_values,
-        created_by=user.id,
-    )
-    db.add(project)
-    try:
-        db.flush()
-    except IntegrityError:
-        db.rollback()
+        project = create_project_record(
+            db,
+            user,
+            template,
+            project_number=payload.project_number,
+            title=payload.title,
+            custom_field_values=payload.custom_field_values,
+            client_project_number=payload.client_project_number,
+        )
+    except ProjectNumberConflict:
         raise HTTPException(
             status_code=409,
             detail="A live project with that project number already exists.",
         )
-
-    # Auto-create milestones from the template's live milestone defs.
-    for md in _live_milestone_defs(db, template.id):
-        db.add(
-            Milestone(
-                project_id=project.id,
-                template_milestone_def_id=md.id,
-                name=md.name,
-                direction=md.direction,
-                date_model=md.date_model,
-                order_index=md.order_index,
-            )
-        )
-    record_audit(
-        db,
-        user=user,
-        entity_type="project",
-        entity_id=project.id,
-        operation="create",
-        changes={
-            "initial": {
-                "title": project.title,
-                "project_number": project.project_number,
-                "client_project_number": project.client_project_number,
-                "template_id": str(project.template_id),
-                "custom_field_values": project.custom_field_values or {},
-            }
-        },
-        project_id=project.id,
-    )
     db.commit()
     db.refresh(project)
 
@@ -1373,16 +1309,6 @@ def _validate_milestone_enums(data: dict) -> None:
         )
 
 
-def _next_milestone_order(db: Session, project_id: uuid.UUID) -> int:
-    current_max = db.execute(
-        select(func.max(Milestone.order_index)).where(
-            Milestone.project_id == project_id,
-            Milestone.deleted_at.is_(None),
-        )
-    ).scalar()
-    return 0 if current_max is None else current_max + 1
-
-
 @router.post(
     "/{pid}/milestones",
     response_model=MilestoneOut,
@@ -1394,32 +1320,16 @@ def create_milestone(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> MilestoneOut:
+    from backend.app.services.milestone_create import create_milestone_record
+
     project = _fetch_project_for_edit(db, user, pid)
-    _validate_milestone_enums(payload.model_dump())
-    obj = Milestone(
-        project_id=project.id,
-        template_milestone_def_id=None,  # ad-hoc
+    obj = create_milestone_record(
+        db,
+        user,
+        project,
         name=payload.name,
         direction=payload.direction,
         date_model=payload.date_model,
-        order_index=_next_milestone_order(db, project.id),
-    )
-    db.add(obj)
-    db.flush()
-    record_audit(
-        db,
-        user=user,
-        entity_type="milestone",
-        entity_id=obj.id,
-        operation="create",
-        changes={
-            "initial": {
-                "name": obj.name,
-                "direction": obj.direction,
-                "date_model": obj.date_model,
-            }
-        },
-        project_id=project.id,
     )
     db.commit()
     db.refresh(obj)

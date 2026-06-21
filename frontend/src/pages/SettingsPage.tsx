@@ -1,3 +1,5 @@
+import { useMemo } from "react"
+
 import {
   Card,
   CardContent,
@@ -5,14 +7,16 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { PageHeader } from "@/components/PageHeader"
+import { useTopbarCrumbs } from "@/hooks/useTopbarCrumbs"
 
 export function SettingsPage() {
+  useTopbarCrumbs(useMemo(() => [{ label: "User Settings" }], []))
   return (
-    <>
-      <PageHeader title="User Settings" />
-      <main className="space-y-4 px-6 py-8">
-        <Card>
+    <main className="space-y-5 px-6 py-7">
+      <h1 className="text-[20px] font-semibold tracking-[-0.01em]">
+        User Settings
+      </h1>
+      <Card>
           <CardHeader>
             <CardTitle>Coming soon</CardTitle>
             <CardDescription>
@@ -25,7 +29,6 @@ export function SettingsPage() {
             </p>
           </CardContent>
         </Card>
-      </main>
-    </>
+    </main>
   )
 }

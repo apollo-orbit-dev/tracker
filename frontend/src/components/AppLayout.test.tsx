@@ -171,6 +171,65 @@ describe("AppLayout", () => {
     expect(screen.getByText(/DIV1/)).toBeInTheDocument()
   })
 
+  it("shows a pending-review count badge on forms in the sidebar (#49)", async () => {
+    stubFetchByRoute([
+      {
+        match: (u) => u.endsWith("/api/auth/me"),
+        respond: () => jsonResponse(ADMIN),
+      },
+      {
+        match: (u) => /\/api\/forms(\?|$)/.test(u),
+        respond: () =>
+          jsonResponse({
+            items: [
+              {
+                id: "form-pending",
+                department_id: "d1",
+                name: "CO Requests",
+                target_entity: "cor",
+                status: "active",
+                updated_at: "2026-01-01T00:00:00Z",
+                pending_count: 3,
+              },
+              {
+                id: "form-quiet",
+                department_id: "d1",
+                name: "Quiet Form",
+                target_entity: null,
+                status: "active",
+                updated_at: "2026-01-01T00:00:00Z",
+                pending_count: 0,
+              },
+            ],
+            total: 2,
+          }),
+      },
+    ])
+    renderWithProviders(
+      <Routes>
+        <Route element={<AppLayout />}>
+          <Route path="/" element={<div>home</div>} />
+        </Route>
+      </Routes>,
+      { route: "/" },
+    )
+    // The form with pending submissions shows its count …
+    const badge = await screen.findByLabelText(/3 submissions awaiting review/i)
+    expect(badge).toHaveTextContent("3")
+    // … and a form with none shows no review badge.
+    expect(
+      screen.queryByLabelText(/awaiting review/i, {
+        // scope to the quiet form's row would be ideal; here we assert only one badge exists
+      }),
+    ).toBe(badge)
+  })
+
+  it("links the Forms section header to the /forms index for all users (#4)", async () => {
+    renderShell(VIEWER)
+    const formsLink = await screen.findByRole("link", { name: /^forms$/i })
+    expect(formsLink.getAttribute("href")).toBe("/forms")
+  })
+
   it("renders the top-group nav items for all authenticated users", async () => {
     renderShell(VIEWER)
     expect(

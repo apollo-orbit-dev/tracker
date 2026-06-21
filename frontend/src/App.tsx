@@ -7,6 +7,8 @@ import { ProtectedRoute } from "@/components/ProtectedRoute"
 import { AdminSettingsPage } from "@/pages/AdminSettingsPage"
 import { AuditLogPage } from "@/pages/AuditLogPage"
 import { CalendarPage } from "@/pages/CalendarPage"
+import { FormPage } from "@/pages/forms/FormPage"
+import { FormsListPage } from "@/pages/forms/FormsListPage"
 import { ContactsManagePage } from "@/pages/ContactsManagePage"
 import { DashboardPage } from "@/pages/Dashboard"
 import { LoginPage } from "@/pages/Login"
@@ -38,6 +40,8 @@ function App() {
         <Route path="/projects/view" element={<ProjectsViewPage />} />
         <Route path="/projects/:pid" element={<ProjectDetailPage />} />
         <Route path="/calendar" element={<CalendarPage />} />
+        <Route path="/forms" element={<FormsListPage />} />
+        <Route path="/forms/:fid" element={<FormPage />} />
         <Route path="/views/:vid" element={<ViewPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route

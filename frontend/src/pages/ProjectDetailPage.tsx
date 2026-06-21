@@ -16,6 +16,7 @@ import {
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import {
+  ChevronDown,
   ClipboardList,
   FileSignature,
   Flag,
@@ -195,7 +196,7 @@ export function ProjectDetailPage({
 
   if (project.isLoading) {
     return (
-      <main className={embedded ? "space-y-4 p-4" : "space-y-4 px-6 py-8"}>
+      <main className={embedded ? "space-y-4 p-4" : "space-y-4 px-6 py-7"}>
         <p className="text-sm text-muted-foreground">Loading…</p>
       </main>
     )
@@ -205,7 +206,7 @@ export function ProjectDetailPage({
     const err = project.error
     const notFound = err instanceof ApiError && err.status === 404
     return (
-      <main className={embedded ? "space-y-4 p-4" : "space-y-4 px-6 py-8"}>
+      <main className={embedded ? "space-y-4 p-4" : "space-y-4 px-6 py-7"}>
         <Alert variant="destructive">
           <AlertTitle>
             {notFound ? "Project not found" : "Couldn't load project"}
@@ -282,7 +283,7 @@ export function ProjectDetailPage({
                     disabled={transition.isPending}
                   >
                     Change state
-                    <MoreHorizontal className="ml-1 size-3" />
+                    <ChevronDown className="ml-1 size-3" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start">
@@ -658,7 +659,7 @@ function MilestoneRow({
       <td className="py-2 pr-3 font-medium">
         {m.name}
         {isAdhoc && (
-          <span className="ml-2 rounded-md bg-slate-200 px-1.5 py-0.5 text-[10px] uppercase text-slate-700">
+          <span className="ml-2 rounded-md bg-muted px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
             ad-hoc
           </span>
         )}
@@ -1136,33 +1137,43 @@ function NotesCard({
                       )}
                     </div>
                     {(isAuthor || isAdmin) && !editing && (
-                      <div className="flex gap-1">
-                        {isAuthor && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
                           <Button
                             variant="ghost"
-                            size="sm"
-                            onClick={() => {
-                              setEditingId(n.id)
-                              setEditDraft(n.body)
+                            size="icon"
+                            className="size-7"
+                            aria-label="Note actions"
+                          >
+                            <MoreHorizontal className="size-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          {isAuthor && (
+                            <DropdownMenuItem
+                              onSelect={() => {
+                                setEditingId(n.id)
+                                setEditDraft(n.body)
+                              }}
+                            >
+                              Edit
+                            </DropdownMenuItem>
+                          )}
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onSelect={() => {
+                              if (confirm("Delete this note?")) {
+                                del.mutate(n.id, {
+                                  onSuccess: () =>
+                                    toast.success("Note deleted"),
+                                })
+                              }
                             }}
                           >
-                            Edit
-                          </Button>
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            if (confirm("Delete this note?")) {
-                              del.mutate(n.id, {
-                                onSuccess: () => toast.success("Note deleted"),
-                              })
-                            }
-                          }}
-                        >
-                          Delete
-                        </Button>
-                      </div>
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     )}
                   </div>
                   {editing ? (

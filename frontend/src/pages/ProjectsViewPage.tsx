@@ -5,7 +5,7 @@ import { toast } from "sonner"
 
 import { ColumnPickerSheet } from "@/components/ColumnPickerSheet"
 import { ExportProjectsDialog } from "@/components/ExportProjectsDialog"
-import { PageHeader } from "@/components/PageHeader"
+import { useTopbarCrumbs } from "@/hooks/useTopbarCrumbs"
 import {
   renderCell,
   renderHeaderLabel,
@@ -61,6 +61,7 @@ const PAGE_SIZE = 15
 // table block) — behavior unchanged.
 
 export function ProjectsViewPage() {
+  useTopbarCrumbs(useMemo(() => [{ label: "Project Overviews" }], []))
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
 
@@ -197,65 +198,64 @@ export function ProjectsViewPage() {
 
   // ---- empty / loading states ------------------------------------------
 
+  const pageTitle = (
+    <h1 className="text-[20px] font-semibold tracking-[-0.01em]">
+      Project Overviews
+    </h1>
+  )
+
   if (!templateId) {
     return (
-      <>
-        <PageHeader
-          title="Project Overviews"
-          actions={
-            <TemplateSelect
-              templates={templates.data}
-              depts={depts.data}
-              clients={clients.data?.items}
-              disciplines={disciplines.data?.items}
-              value={templateId}
-              onChange={(id) => setParams({ template_id: id })}
-            />
-          }
-        />
-        <main className="space-y-4 px-6 py-8">
-          <p className="text-sm text-muted-foreground">
-            Pick a template from the dropdown to start viewing.
-          </p>
-        </main>
-      </>
+      <main className="space-y-5 px-6 py-7">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          {pageTitle}
+          <TemplateSelect
+            templates={templates.data}
+            depts={depts.data}
+            clients={clients.data?.items}
+            disciplines={disciplines.data?.items}
+            value={templateId}
+            onChange={(id) => setParams({ template_id: id })}
+          />
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Pick a template from the dropdown to start viewing.
+        </p>
+      </main>
     )
   }
 
   return (
-    <>
-      <PageHeader
-        title="Project Overviews"
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <TemplateSelect
-              templates={templates.data}
-              depts={depts.data}
-              clients={clients.data?.items}
-              disciplines={disciplines.data?.items}
-              value={templateId}
-              onChange={(id) => setParams({ template_id: id })}
-            />
-            <Button
-              variant="outline"
-              onClick={() => setPickerOpen(true)}
-              aria-label="Open column picker"
-            >
-              <Columns className="mr-2 size-4" />
-              Columns
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => setExportOpen(true)}
-              aria-label="Export projects"
-            >
-              <Download className="mr-2 size-4" />
-              Export
-            </Button>
-          </div>
-        }
-      />
-      <main className="space-y-4 px-6 py-8">
+    <main className="space-y-5 px-6 py-7">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        {pageTitle}
+        <div className="flex flex-wrap items-center gap-2">
+          <TemplateSelect
+            templates={templates.data}
+            depts={depts.data}
+            clients={clients.data?.items}
+            disciplines={disciplines.data?.items}
+            value={templateId}
+            onChange={(id) => setParams({ template_id: id })}
+          />
+          <Button
+            variant="outline"
+            onClick={() => setPickerOpen(true)}
+            aria-label="Open column picker"
+          >
+            <Columns className="mr-2 size-4" />
+            Columns
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => setExportOpen(true)}
+            aria-label="Export projects"
+          >
+            <Download className="mr-2 size-4" />
+            Export
+          </Button>
+        </div>
+      </div>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <p className="text-sm text-muted-foreground">
@@ -414,7 +414,6 @@ export function ProjectsViewPage() {
           }}
         />
       </main>
-    </>
   )
 }
 

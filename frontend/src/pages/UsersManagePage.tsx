@@ -199,6 +199,7 @@ export function UsersManagePage() {
               <TableHead className="w-[220px]">Email</TableHead>
               <TableHead>Department roles</TableHead>
               <TableHead className="w-[120px]">Org admin</TableHead>
+              <TableHead className="w-[120px]">Org viewer</TableHead>
               <TableHead className="w-[110px]">Status</TableHead>
               <TableHead className="w-[60px]"></TableHead>
             </TableRow>
@@ -264,6 +265,17 @@ export function UsersManagePage() {
                       {isAdmin ? (
                         <Badge tone="indigo" dot>
                           Org admin
+                        </Badge>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          —
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell style={DENSITY_CELL_STYLE}>
+                      {isOrgViewer ? (
+                        <Badge tone="slate" dot>
+                          Org viewer
                         </Badge>
                       ) : (
                         <span className="text-xs text-muted-foreground">

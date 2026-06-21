@@ -1215,7 +1215,7 @@ def test_import_dm_can_create(
     assert body["errors"] == []
 
 
-def test_import_skips_blank_mesa(
+def test_import_skips_blank_project_number(
     client_as, admin_user: User, template_with_defs,
 ):
     t, _f, _m = template_with_defs
@@ -1233,7 +1233,7 @@ def test_import_skips_blank_mesa(
     assert body["skipped"][0]["reason"] == "missing Project #"
 
 
-def test_import_skips_duplicate_mesa(
+def test_import_skips_duplicate_project_number(
     client_as, admin_user: User, template_with_defs,
 ):
     t, _f, _m = template_with_defs

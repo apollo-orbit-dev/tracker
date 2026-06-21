@@ -1,7 +1,7 @@
 # Architecture
 
 ## Current state
-Pilot-approved POC, built through **Phase 15 (Multi-day events)** and tagged `v0.7.0`. The stack below is in production-shape use, not a proposal. Core domain (auth, RBAC with dept-scoped visibility, taxonomy, templates, projects/milestones/CORs/notes/contacts/role-assignments/assignments, audit log), user dashboards, per-template Saved Views (with spreadsheet import/export), Custom Views, the Calendar view, US holiday display (admin-controlled via the app-settings mechanism), custom recurring events, and multi-day event spans are all shipped and tested (~822 backend + ~373 frontend). See the **Data model overview**, **Custom Views**, **Calendar**, **App settings + Holidays**, and **Custom recurring events** sections below for the built shape. The original Phase 0/1/2+ roadmap at the end of this file is kept for historical context only.
+Pilot-approved POC, built through **Phase 17 (Forms)** + a **Phase 18** app-wide UI-consistency pass, tagged `v0.9.1`. The stack below is in production-shape use, not a proposal. Core domain (auth, RBAC with dept-scoped visibility, taxonomy, templates, projects/milestones/CORs/notes/contacts/role-assignments/assignments, audit log), user dashboards, per-template Saved Views (with spreadsheet import/export), Custom Views, the Calendar view, US holiday display (admin-controlled via the app-settings mechanism), custom recurring events, multi-day event spans, and **Forms** (Phase 17) are all shipped and tested (~899 backend + ~410 frontend). See the **Data model overview**, **Custom Views**, **Calendar**, **App settings + Holidays**, **Custom recurring events**, and **Forms** sections below for the built shape. The original Phase 0/1/2+ roadmap at the end of this file is kept for historical context only.
 
 ## Proposed stack
 
@@ -460,6 +460,27 @@ Phase 15 extends Phase 14 custom events with an optional `end_date` so an event 
 **Frontend rendering:** `MonthGrid` places each event on every day within `[date, end_date]` that falls in the visible grid. Continuation days (where `dd !== item.date`) receive a subtle leading marker (`›`) and reduced opacity so they read as continuation, not new events. `AgendaList` guards against null `end_date` when computing span overlap. `EventDetailSheet` shows the date range (e.g. "Jun 10 – Jun 14") when `end_date` differs from `date`. `EventSheet` gains an "End date (optional)" `Input type="date"` field (shown in series create/edit mode only; hidden in occurrence-edit mode like `start_date`).
 
 **Deferred:** "This and following" occurrence split (a series split at a future occurrence while preserving past occurrences); spanning-bar calendar rendering (events as a continuous horizontal bar rather than per-day chips).
+
+---
+
+## Forms (Phase 17)
+
+Dept-shared custom forms that assist company workflows. Phase 1 supports one **target entity** — CORs — end to end; a registry leaves the seam for more.
+
+**Data model (migration `0028_forms`):**
+- `forms` — dept-shared definition: `department_id`, `name`, `description`, `target_entity` (CHECK ∈ {`cor`} or null = collect-only), `status` (`draft`/`active`/`archived`), `created_by`, soft-delete.
+- `form_fields` — field defs (parallel to `TemplateFieldDef`): `form_id`, `label`, `field_type` (curated subset of `FIELD_TYPES`: `short_text, long_text, integer, decimal, currency, date, single_select, boolean`), `required`, `help_text`, `placeholder`, `options` JSONB, `order_index`, `target_key` (the registry key this field maps to), soft-delete (so historical submissions keep their labels).
+- `form_submissions` — `form_id`, `submitted_by`, `values` JSONB (keyed by field id), `target_project_id`, `status` (`pending`/`approved`/`rejected`), `reviewed_by`/`reviewed_at`/`review_note`, `pushed_entity_type`/`pushed_entity_id`. The `audit_log` `entity_type` CHECK is extended with `form`/`form_submission`.
+
+**Binding + push (the writer-dispatch registry — Phase 20):** `backend/app/services/form_targets.py` describes each target entity (`{requires_project, requires_template?, writer, fields:[…]}`) plus the `field_type_map` compatibility matrix (single source of truth, shipped in `/api/forms/targets`). On approve, `backend/app/services/form_push.py::push_submission` looks up the descriptor's `writer` in `_WRITERS` and dispatches; per-target approval inputs travel in a single `ctx` dict so the signature is stable as targets are added. Five targets ship: **cor** (`create_cor_record`), **assignment** (`create_assignment_record`; assignee chosen at approval, constrained to project-viewers), **milestone** (`create_milestone_record`; ad-hoc milestone, direction/date_model at approval), **event** (`requires_project:false`; a single all-day event in the form's dept), and **intake** (`requires_template:true`, `create_project_record`; creates a new project under the form's bound template — `forms.target_template_id` — with `project_number` entered at approval and form fields mapped to the template's custom-field defs as dynamic targets). Each writer owns its RBAC (`assert_can_edit_project` for project-bound targets; `assert_can_edit_dept` for event/intake) and audit; shared create services keep one validation path per entity. Adding a target = a registry entry + a writer (+ an additive CHECK widen); migrations `0029`–`0033`.
+
+**Endpoints (`backend/app/routes/forms.py`, `/api/forms`):** form CRUD; field add/edit/delete/reorder; `GET /api/forms/targets`; `POST /api/forms/{id}/submissions` (submit); `GET …/submissions[?status=]` + `…/{sid}`; `POST …/{sid}/approve` (validates `final_values`, then dispatches to the target's writer with the per-target `ctx` — `cor_number`/`cor_status`, `assignee_user_id`, `milestone_direction`/`milestone_date_model`, `intake_project_number`) and `…/{sid}/reject`.
+
+**RBAC / integrity:** build/edit/review = `assert_can_edit_dept` (project_editor+ in the form's dept); fill/submit = viewer+ in the dept; drafts/archived 404-masked from non-editors. A submitter's `target_project_id` is gated by `assert_can_view_project` (404-masked); the push is gated by `assert_can_edit_project` on the resolved (reviewer-overridable) target — the cross-dept guard. A duplicate COR number → 409 leaves the submission `pending` (no partial state); a submission is reviewed once (409 on re-review). Services never commit; routes own the single commit.
+
+**Frontend:** a top-level **Forms** sidebar section (lists dept forms) + `pages/forms/` — `FormsListPage`, and `FormPage` with three modes: **Build** (split builder — `FormMeta` target cards, `FieldPalette`, `FieldList`, `FieldConfigSheet` with the "Maps to" binding, `FormPreview` live 2-column preview, `WiringSummary` "on submit" banner), **Fill out** (`FillForm` controlled inputs + `TargetProjectPicker`, required + numeric guards), **Responses** (`ResponsesTable` + `ReviewSheet` — the reviewer edits mapped values, sets COR number/status, then Approve & push / Reject). API hooks in `frontend/src/api/forms.ts`.
+
+**Deferred:** target entities beyond COR (intake/milestone/assignment/event); notifications on submit/review; CSV export of responses; drag-and-drop field reorder (currently up/down buttons); per-form pending-review count badge in the sidebar. See `open_items.md` 47–50.
 
 ---
 

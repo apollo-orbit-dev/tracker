@@ -176,16 +176,20 @@ export function MonthGrid({
             key={key}
             data-day={key}
             className={cn(
-              "group min-h-36 cursor-pointer bg-background p-1 align-top",
+              "group min-h-36 bg-background p-1 align-top",
+              // Only show the clickable affordance when day-create is enabled
+              // (e.g. hidden for viewers who can't create events).
+              onDayClick ? "cursor-pointer" : "cursor-default",
               !isSameMonth(day, month) && "bg-muted/40 text-muted-foreground",
               dayHolidays.length > 0 && "bg-teal-50/60 dark:bg-teal-500/15",
             )}
-            onClick={() => onDayClick?.(key)}
+            onClick={onDayClick ? () => onDayClick(key) : undefined}
           >
             <div className="mb-1 flex justify-end">
               <span
                 className={cn(
-                  "inline-flex size-6 items-center justify-center rounded-full text-xs transition-colors group-hover:bg-primary/20",
+                  "inline-flex size-6 items-center justify-center rounded-full text-xs transition-colors",
+                  onDayClick && "group-hover:bg-primary/20",
                   isToday(day) && "font-bold text-primary",
                 )}
               >

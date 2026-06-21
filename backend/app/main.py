@@ -24,6 +24,7 @@ from backend.app.routes import views as views_routes
 from backend.app.routes import admin_settings as admin_settings_routes
 from backend.app.routes import calendar as calendar_routes
 from backend.app.routes import events as events_routes
+from backend.app.routes import forms as forms_routes
 
 app = FastAPI(title="Tracker", version="0.0.0")
 
@@ -57,3 +58,4 @@ app.include_router(saved_metrics_routes.router)
 app.include_router(calendar_routes.router)
 app.include_router(admin_settings_routes.router)
 app.include_router(events_routes.router)
+app.include_router(forms_routes.router)

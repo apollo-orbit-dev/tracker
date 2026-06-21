@@ -24,7 +24,15 @@ const DM_ONLY = {
   accessible_department_ids: ["dept-1"],
 }
 
-function stubMeAnd(user: typeof ADMIN, extras: Parameters<typeof stubFetchByRoute>[0] = []) {
+type MeUser = {
+  id: string
+  email: string
+  display_name: string
+  roles: string[]
+  accessible_department_ids: string[] | null
+}
+
+function stubMeAnd(user: MeUser, extras: Parameters<typeof stubFetchByRoute>[0] = []) {
   stubFetchByRoute([
     {
       match: (u) => u.endsWith("/api/auth/me"),
@@ -74,5 +82,12 @@ describe("AdminLayout", () => {
     })
     expect(screen.getByRole("link", { name: /templates/i })).toBeInTheDocument()
     expect(screen.getByRole("link", { name: /roster/i })).toBeInTheDocument()
+
+    // ...but NOT the admin-only links (incl. the standalone Audit log +
+    // Settings, which were previously rendered unfiltered).
+    expect(screen.queryByRole("link", { name: /audit log/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: /^settings$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: /departments/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: /^users$/i })).not.toBeInTheDocument()
   })
 })

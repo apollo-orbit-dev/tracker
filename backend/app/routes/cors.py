@@ -20,6 +20,7 @@ from backend.app.auth.scope import (
 from backend.app.db.models import COR, COR_STATUSES, Project, User
 from backend.app.db.session import get_db
 from backend.app.services.audit import diff, record_audit
+from backend.app.services.cor_create import CORNumberConflict, create_cor_record
 from backend.app.schemas.cors import (
     CORCreate,
     CORListResponse,
@@ -111,42 +112,23 @@ def create_cor(
 ) -> COROut:
     project = _fetch_project_for_edit(db, user, pid)
     _validate_status(payload.status)
-    obj = COR(
-        project_id=project.id,
-        number=payload.number,
-        description=payload.description,
-        amount=payload.amount,
-        submitted_date=payload.submitted_date,
-        approved_date=payload.approved_date,
-        status=payload.status,
-    )
-    db.add(obj)
     try:
-        db.flush()
-    except IntegrityError:
-        db.rollback()
+        obj = create_cor_record(
+            db,
+            user,
+            project,
+            number=payload.number,
+            description=payload.description,
+            amount=payload.amount,
+            status=payload.status,
+            submitted_date=payload.submitted_date,
+            approved_date=payload.approved_date,
+        )
+    except CORNumberConflict:
         raise HTTPException(
             status_code=409,
             detail="A COR with that number already exists on this project.",
         )
-    record_audit(
-        db,
-        user=user,
-        entity_type="cor",
-        entity_id=obj.id,
-        operation="create",
-        changes={
-            "initial": {
-                "number": obj.number,
-                "description": obj.description,
-                "amount": obj.amount,
-                "status": obj.status,
-                "submitted_date": obj.submitted_date,
-                "approved_date": obj.approved_date,
-            }
-        },
-        project_id=project.id,
-    )
     db.commit()
     db.refresh(obj)
     return COROut.model_validate(obj)

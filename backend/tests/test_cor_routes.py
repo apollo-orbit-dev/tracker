@@ -297,3 +297,31 @@ def test_delete_cor_writes_audit_row(
     delete_rows = [r for r in rows if r.operation == "delete"]
     assert len(delete_rows) == 1
     assert str(delete_rows[0].project_id) == p["id"]
+
+
+# ---- regression: PATCH duplicate number returns 409, not NameError ----------
+
+
+def test_patch_cor_duplicate_number_returns_409(
+    client_as, admin_user: User, project_pair
+):
+    """Regression for missing IntegrityError import in cors.py.
+
+    PATCHing a COR's number to one already taken on the same project must
+    return 409 (not NameError / 500).  Two CORs share the same project;
+    renaming the second to the first's number triggers the DB unique constraint
+    and must be caught and mapped to HTTP 409.
+    """
+    c = client_as(admin_user)
+    p = _new_project(c, str(project_pair.id))
+    c1 = c.post(f"/api/projects/{p['id']}/cors", json=_cor_body(number="C1")).json()
+    c2 = c.post(f"/api/projects/{p['id']}/cors", json=_cor_body(number="C2")).json()
+    assert c1["number"] == "C1"
+    assert c2["number"] == "C2"
+
+    r = c.patch(
+        f"/api/projects/{p['id']}/cors/{c2['id']}",
+        json={"number": "C1"},
+    )
+    assert r.status_code == 409
+    assert r.json()["detail"] == "A COR with that number already exists on this project."

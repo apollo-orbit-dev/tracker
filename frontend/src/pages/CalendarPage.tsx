@@ -1,6 +1,7 @@
 import { addMonths, endOfMonth, endOfWeek, format, startOfMonth, startOfWeek } from "date-fns"
-import { useState } from "react"
+import { useMemo, useState } from "react"
 
+import { useTopbarCrumbs } from "@/hooks/useTopbarCrumbs"
 import { AgendaList } from "@/components/calendar/AgendaList"
 import { CalendarItemDetailSheet } from "@/components/calendar/CalendarItemDetailSheet"
 import { CalendarToolbar, type CalendarFilters } from "@/components/calendar/CalendarToolbar"
@@ -17,8 +18,11 @@ import {
   type CalendarEventItem,
 } from "@/api/events"
 import { useMyDepartments } from "@/api/me"
+import { useAuth } from "@/hooks/useAuth"
+import { hasRole } from "@/lib/roles"
 
 export function CalendarPage() {
+  useTopbarCrumbs(useMemo(() => [{ label: "Calendar" }], []))
   const [month, setMonth] = useState(() => startOfMonth(new Date()))
   const [view, setView] = useState<"month" | "agenda">("month")
   const [selected, setSelected] = useState<CalendarItem | null>(null)
@@ -49,6 +53,12 @@ export function CalendarPage() {
 
   const depts = useMyDepartments()
   const defaultDeptId = (depts.data ?? [])[0]?.id ?? ""
+
+  // Only project_editor+ can create events — matches the toolbar's New-event
+  // button. Viewers shouldn't be able to open the create flyout by clicking a
+  // day (the backend rejects the write, but the UI shouldn't offer it).
+  const { data: user } = useAuth()
+  const canCreateEvent = hasRole(user?.roles ?? [], "project_editor")
 
   // ── Calendar data ─────────────────────────────────────────────────────────
   const types = [
@@ -159,7 +169,7 @@ export function CalendarPage() {
   }
 
   return (
-    <div className="space-y-4 p-4">
+    <main className="space-y-4 px-6 py-7">
       <CalendarToolbar
         month={month}
         onPrev={() => setMonth((m) => addMonths(m, -1))}
@@ -179,7 +189,11 @@ export function CalendarPage() {
           events={events}
           onSelect={setSelected}
           onEventSelect={(ev) => setSelectedEvent(ev)}
-          onDayClick={(date) => { setCreateStartDate(date); setCreateEventOpen(true) }}
+          onDayClick={
+            canCreateEvent
+              ? (date) => { setCreateStartDate(date); setCreateEventOpen(true) }
+              : undefined
+          }
         />
       ) : (
         <AgendaList
@@ -239,6 +253,6 @@ export function CalendarPage() {
         departmentId={defaultDeptId}
         initialStartDate={createStartDate}
       />
-    </div>
+    </main>
   )
 }

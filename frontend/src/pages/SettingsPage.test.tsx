@@ -4,13 +4,16 @@ import { describe, expect, it } from "vitest"
 
 import { SettingsPage } from "./SettingsPage"
 import { SidebarProvider } from "@/components/ui/sidebar"
+import { TopbarProvider } from "@/components/topbar/TopbarContext"
 
 describe("SettingsPage", () => {
   it("renders the page title and a coming-soon card", () => {
     render(
       <MemoryRouter>
         <SidebarProvider>
-          <SettingsPage />
+          <TopbarProvider>
+            <SettingsPage />
+          </TopbarProvider>
         </SidebarProvider>
       </MemoryRouter>,
     )

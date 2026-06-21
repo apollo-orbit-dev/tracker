@@ -752,6 +752,133 @@ class EventOccurrenceOverride(Base):
     event: Mapped["Event"] = relationship(back_populates="overrides")
 
 
+# ---- forms (Phase 17) ----------------------------------------------------
+
+FORM_FIELD_TYPES: frozenset[str] = frozenset(
+    {"short_text", "long_text", "integer", "decimal",
+     "currency", "date", "single_select", "boolean"}
+)
+FORM_TARGET_ENTITIES: frozenset[str] = frozenset(
+    {"cor", "assignment", "milestone", "event", "intake"}
+)
+FORM_STATUSES: frozenset[str] = frozenset({"draft", "active", "archived"})
+FORM_SUBMISSION_STATUSES: frozenset[str] = frozenset(
+    {"pending", "approved", "rejected"}
+)
+
+
+class Form(Base):
+    __tablename__ = "forms"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('draft','active','archived')", name="form_status_valid"
+        ),
+        CheckConstraint(
+            "target_entity IS NULL OR target_entity IN "
+            "('cor','assignment','milestone','event','intake')",
+            name="form_target_entity_valid",
+        ),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    department_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("departments.id"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    target_entity: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Bound template for the `intake` target (the new project's Dept×Client×
+    # Discipline); NULL for every other target. Phase 20.5.
+    target_template_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("templates.id"), nullable=True
+    )
+    status: Mapped[str] = mapped_column(
+        String, nullable=False, default="draft", server_default="draft"
+    )
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
+    )
+    fields: Mapped[list["FormField"]] = relationship(
+        back_populates="form", cascade="all, delete-orphan"
+    )
+
+
+class FormField(Base):
+    __tablename__ = "form_fields"
+    __table_args__ = (
+        CheckConstraint(
+            "field_type IN ('short_text','long_text','integer','decimal',"
+            "'currency','date','single_select','boolean')",
+            name="form_field_type_valid",
+        ),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    form_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("forms.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    label: Mapped[str] = mapped_column(String(200), nullable=False)
+    field_type: Mapped[str] = mapped_column(String, nullable=False)
+    required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    help_text: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    placeholder: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    options: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    target_key: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    form: Mapped["Form"] = relationship(back_populates="fields")
+
+
+class FormSubmission(Base):
+    __tablename__ = "form_submissions"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending','approved','rejected')", name="form_submission_status_valid"
+        ),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    form_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("forms.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    submitted_by: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
+    )
+    values: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+    target_project_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id"), nullable=True
+    )
+    status: Mapped[str] = mapped_column(
+        String, nullable=False, default="pending", server_default="pending", index=True
+    )
+    reviewed_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pushed_entity_type: Mapped[str | None] = mapped_column(String, nullable=True)
+    pushed_entity_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
 # ---- notes ---------------------------------------------------------------
 
 
@@ -1082,7 +1209,8 @@ class AuditLog(Base):
         CheckConstraint(
             "entity_type IN ("
             "'project', 'milestone', 'cor', 'note', "
-            "'user_role', 'project_role_assignment', 'assignment', 'app_setting', 'event'"
+            "'user_role', 'project_role_assignment', 'assignment', 'app_setting', 'event', "
+            "'form', 'form_submission'"
             ")",
             name="entity_type_valid",
         ),

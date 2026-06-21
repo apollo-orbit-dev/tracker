@@ -1,11 +1,15 @@
-import { ArrowRight, X } from "lucide-react"
+import { ArrowRight, Plus, X } from "lucide-react"
+import { useState } from "react"
 import { Link } from "react-router"
+import { toast } from "sonner"
 
 import { Avatar } from "@/components/Avatar"
 import { Badge } from "@/components/Badge"
 import { Button } from "@/components/ui/button"
+import { Textarea } from "@/components/ui/textarea"
+import { ApiError } from "@/api/auth"
 import { useCORList } from "@/api/cors"
-import { useNoteList } from "@/api/notes"
+import { useNoteCreate, useNoteList } from "@/api/notes"
 import { type Milestone, type Project, useProject } from "@/api/projects"
 import { corStatusLabel, corStatusTone } from "@/lib/cors"
 import { milestoneDirectionTone } from "@/lib/field-types"
@@ -110,6 +114,34 @@ export function PeekPanel({ project, onClose }: Props) {
   const detail = useProject(project.id)
   const cors = useCORList(project.id)
   const notes = useNoteList(project.id, { limit: 3, offset: 0 })
+  const createNote = useNoteCreate(project.id)
+
+  // Inline "+" composer in the Recent notes section. Collapsed by default;
+  // the heading's "+" toggle opens it. Mirrors the full project page's note
+  // composer (trim-non-empty guard, success toast); the create mutation
+  // already invalidates the notes scope, so this panel's list re-fetches.
+  const [composing, setComposing] = useState(false)
+  const [draft, setDraft] = useState("")
+  const createError =
+    createNote.error instanceof ApiError ? createNote.error : null
+
+  const closeComposer = () => {
+    setComposing(false)
+    setDraft("")
+  }
+
+  const submitNote = () => {
+    if (!draft.trim()) return
+    createNote.mutate(
+      { body: draft.trim() },
+      {
+        onSuccess: () => {
+          closeComposer()
+          toast.success("Note posted")
+        },
+      },
+    )
+  }
 
   const milestones = detail.data?.milestones ?? []
 
@@ -328,7 +360,61 @@ export function PeekPanel({ project, onClose }: Props) {
 
         {/* Recent notes */}
         <section className="border-b py-4 [&:last-child]:border-b-0">
-          <SectionHead label="Recent notes" />
+          <SectionHead
+            label="Recent notes"
+            trailing={
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={composing ? "Cancel note" : "Add note"}
+                aria-expanded={composing}
+                onClick={() => (composing ? closeComposer() : setComposing(true))}
+                className="-my-1 size-6"
+              >
+                {composing ? (
+                  <X className="size-3.5" />
+                ) : (
+                  <Plus className="size-3.5" />
+                )}
+              </Button>
+            }
+          />
+          {composing && (
+            <div className="mb-3 space-y-2">
+              <Textarea
+                autoFocus
+                placeholder="Add a note…"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                rows={3}
+                aria-label="New note"
+                className="text-[13px]"
+              />
+              {createError && (
+                <p className="text-[12px] text-destructive">
+                  {createError.detail}
+                </p>
+              )}
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={closeComposer}
+                  className="h-7"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={submitNote}
+                  disabled={createNote.isPending || !draft.trim()}
+                  className="h-7"
+                >
+                  {createNote.isPending ? "Posting…" : "Post note"}
+                </Button>
+              </div>
+            </div>
+          )}
           {notes.isLoading ? (
             <p className="text-xs text-muted-foreground">Loading…</p>
           ) : (notes.data?.items ?? []).length === 0 ? (
