@@ -18,9 +18,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from backend.app.auth.dependencies import get_current_user
+from backend.app.auth.roles import PROJECT_EDITOR
 from backend.app.auth.scope import (
     assert_can_edit_project,
     assert_can_view_project,
+    has_role_in_dept,
 )
 from backend.app.db.models import (
     Assignment,
@@ -226,8 +228,26 @@ def update_assignment(
     data = payload.model_dump(exclude_unset=True)
     if not data:
         raise HTTPException(status_code=422, detail="At least one field is required")
-    project = _fetch_project_for_edit(db, user, pid)
+    # Read-level access: the assignee can always view the project (the
+    # eligible-assignee rule guarantees it), so a read-fetch is sound and
+    # opens no new visibility.
+    project = _fetch_project_for_read(db, user, pid)
     obj = _fetch_assignment(db, project, aid)
+
+    # Phase 23.5: a non-editor may update ONLY status, and ONLY on their
+    # own assignment. Editors keep full edit. The own-assignment check
+    # reads the stored row (before any change), and the body-key allowlist
+    # blocks field-smuggling (e.g. status + assignee in one call).
+    is_editor = has_role_in_dept(
+        user, project.template.department_id, PROJECT_EDITOR
+    )
+    if not is_editor:
+        if obj.assignee_user_id != user.id or set(data) != {"status"}:
+            raise HTTPException(
+                status_code=403,
+                detail="You can only update the status of your own assignments",
+            )
+
     if "status" in data:
         _validate_status(data["status"])
     if "milestone_id" in data:

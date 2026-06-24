@@ -101,13 +101,20 @@ describe("TemplatesListPage", () => {
     ])
     renderWithProviders(<App />, { route: "/admin/templates" })
 
+    // The intersection name also appears in the sidebar's Saved Views group,
+    // so scope to the page's table body (rowgroup[1]) to disambiguate, and
+    // wait until the row (not the "Loading…" placeholder) has rendered.
     await waitFor(() => {
-      expect(screen.getByText("DIV1 / CON / Design")).toBeInTheDocument()
+      const tb = screen.getAllByRole("rowgroup")[1]
+      expect(
+        within(tb).getByText("DIV1 / CON / Design"),
+      ).toBeInTheDocument()
     })
+    const tableBody = screen.getAllByRole("rowgroup")[1]
     // Joined codes appear in the row's monospaced cells (DIV1, CON, Design).
-    expect(screen.getAllByText("DIV1").length).toBeGreaterThan(0)
-    expect(screen.getAllByText("CON").length).toBeGreaterThan(0)
-    expect(screen.getAllByText("Design").length).toBeGreaterThan(0)
+    expect(within(tableBody).getAllByText("DIV1").length).toBeGreaterThan(0)
+    expect(within(tableBody).getAllByText("CON").length).toBeGreaterThan(0)
+    expect(within(tableBody).getAllByText("Design").length).toBeGreaterThan(0)
   })
 
   it("renders an empty state when there are no templates", async () => {
@@ -189,9 +196,13 @@ describe("TemplatesListPage", () => {
 
     // 5.1: the same template list also feeds the sidebar's Saved Views
     // group, so the names appear in two places. Scope assertions to
-    // the page's table body (rowgroup) to disambiguate.
+    // the page's table body (rowgroup) to disambiguate, and wait for the
+    // row to render past the "Loading…" placeholder.
     await waitFor(() => {
-      expect(screen.getByText("DIV1 / CON / Design")).toBeInTheDocument()
+      const tb = screen.getAllByRole("rowgroup")[1]
+      expect(
+        within(tb).getByText("DIV1 / CON / Design"),
+      ).toBeInTheDocument()
     })
     const tableBody = screen.getAllByRole("rowgroup")[1]
     expect(

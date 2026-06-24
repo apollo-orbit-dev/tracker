@@ -33,6 +33,7 @@ import { Badge } from "@/components/Badge"
 import { AssignmentDeleteDialog } from "@/components/AssignmentDeleteDialog"
 import { AssignmentSheet } from "@/components/AssignmentSheet"
 import { AssignmentStatusBadge } from "@/components/AssignmentStatusBadge"
+import { AssignmentStatusControl } from "@/components/AssignmentStatusControl"
 import { CORDeleteDialog } from "@/components/CORDeleteDialog"
 import { CORSheet } from "@/components/CORSheet"
 import { CORStatusBadge } from "@/components/CORStatusBadge"
@@ -547,6 +548,7 @@ export function ProjectDetailPage({
         <AssignmentsCard
           pid={pid ?? ""}
           canEdit={canEdit}
+          currentUserId={user?.id ?? ""}
           milestones={(p.milestones ?? []).map((m) => ({ id: m.id, name: m.name }))}
         />
 
@@ -873,10 +875,12 @@ function CORsCard({ pid, canEdit }: { pid: string; canEdit: boolean }) {
 function AssignmentsCard({
   pid,
   canEdit,
+  currentUserId,
   milestones,
 }: {
   pid: string
   canEdit: boolean
+  currentUserId: string
   milestones: { id: string; name: string }[]
 }) {
   const list = useAssignmentList(pid)
@@ -943,7 +947,11 @@ function AssignmentsCard({
                     </td>
                     <td className="py-2 pr-3 text-xs">{a.assignee_name}</td>
                     <td className="py-2 pr-3">
-                      <AssignmentStatusBadge status={a.status} />
+                      {canEdit || a.assignee_user_id === currentUserId ? (
+                        <AssignmentStatusControl pid={pid} assignment={a} />
+                      ) : (
+                        <AssignmentStatusBadge status={a.status} />
+                      )}
                     </td>
                     <td className="py-2 pr-3 text-xs text-muted-foreground">
                       {a.due_date ?? "—"}

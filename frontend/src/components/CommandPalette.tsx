@@ -1,5 +1,6 @@
 import {
   BookUser,
+  CalendarDays,
   Folders,
   LayoutDashboard,
   Moon,
@@ -146,6 +147,13 @@ export function CommandPalette({
           >
             <Folders className="size-4" />
             <span>Projects</span>
+          </CommandItem>
+          <CommandItem
+            value="navigate calendar"
+            onSelect={() => go("/calendar")}
+          >
+            <CalendarDays className="size-4" />
+            <span>Calendar</span>
           </CommandItem>
           {isDM && (
             <CommandItem

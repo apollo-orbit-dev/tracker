@@ -6,7 +6,7 @@
  *   Fill out   — fill-out mode for submitting responses.
  *   Responses  — responses list + review/approval.
  */
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate, useParams } from "react-router"
 import { Archive, Inbox, MoreHorizontal, PencilRuler, PenLine, Trash2, Undo2 } from "lucide-react"
 import { toast } from "sonner"
@@ -186,10 +186,26 @@ export function FormPage() {
   const navigate = useNavigate()
   const [deleteOpen, setDeleteOpen] = useState(false)
 
-  // Default to "build" for editors, "fill" for viewers
+  // Default tab depends on role + status: editors land on Build for drafts
+  // and Fill for published forms; viewers always Fill. Re-seed every time we
+  // land on a *different* form (the route id changes without remounting this
+  // page), so navigating draft→published always re-applies the correct
+  // default. A manual tab switch only sticks within the form it was made on.
   const [tab, setTab] = useState<"build" | "fill" | "responses">(
     canBuild ? "build" : "fill",
   )
+  const lastSeededId = useRef<string | null>(null)
+  useEffect(() => {
+    const data = formQuery.data
+    if (!data) return
+    if (lastSeededId.current === data.id) return
+    lastSeededId.current = data.id
+    if (!canBuild) {
+      setTab("fill")
+    } else {
+      setTab(data.status === "active" ? "fill" : "build")
+    }
+  }, [formQuery.data, canBuild])
 
   if (!id) {
     return <p className="text-sm text-destructive">No form ID in URL.</p>

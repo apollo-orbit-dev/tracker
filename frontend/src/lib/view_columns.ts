@@ -56,6 +56,22 @@ export const SORT_PARAM_BY_KEY: Record<string, string> = {
   "builtin:updated_at": "updated_at",
 }
 
+/**
+ * Backend `sort` param for a column key. Built-ins map via the table
+ * above; custom-field keys pass through unchanged (the backend accepts
+ * `custom_field:<id>` directly, Phase 23.4). Returns undefined for
+ * unsortable keys (e.g. milestone columns this phase).
+ */
+export function sortParamForKey(key: string): string | undefined {
+  if (key.startsWith("custom_field:")) return key
+  return SORT_PARAM_BY_KEY[key]
+}
+
+/** True when a column can be clicked to sort (built-ins + custom fields). */
+export function isSortable(key: string): boolean {
+  return key.startsWith("builtin:") || key.startsWith("custom_field:")
+}
+
 export function parseColumnKey(key: string): ParsedKey | null {
   if (key.startsWith("builtin:")) {
     const name = key.slice("builtin:".length)

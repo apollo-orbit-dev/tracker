@@ -6,8 +6,31 @@ import {
   availableColumnsForTemplate,
   columnLabel,
   isBuiltIn,
+  isSortable,
   parseColumnKey,
+  sortParamForKey,
 } from "./view_columns"
+
+describe("sortParamForKey", () => {
+  it("maps built-in keys to their backend param", () => {
+    expect(sortParamForKey("builtin:title")).toBe("title")
+    expect(sortParamForKey("builtin:project_number")).toBe("project_number")
+  })
+  it("passes custom-field keys through unchanged", () => {
+    expect(sortParamForKey("custom_field:abc")).toBe("custom_field:abc")
+  })
+  it("returns undefined for non-sortable keys", () => {
+    expect(sortParamForKey("milestone:abc:date")).toBeUndefined()
+  })
+})
+
+describe("isSortable", () => {
+  it("is true for built-ins and custom fields, false for milestones", () => {
+    expect(isSortable("builtin:title")).toBe(true)
+    expect(isSortable("custom_field:abc")).toBe(true)
+    expect(isSortable("milestone:abc:planned")).toBe(false)
+  })
+})
 
 describe("parseColumnKey", () => {
   it("parses builtin keys", () => {

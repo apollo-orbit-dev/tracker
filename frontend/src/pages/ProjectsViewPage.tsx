@@ -1,10 +1,11 @@
 import { ArrowDown, ArrowUp, Columns, Download, Search } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
-import { useNavigate, useSearchParams } from "react-router"
+import { useSearchParams } from "react-router"
 import { toast } from "sonner"
 
 import { ColumnPickerSheet } from "@/components/ColumnPickerSheet"
 import { ExportProjectsDialog } from "@/components/ExportProjectsDialog"
+import { PeekPanel } from "@/pages/projects-list/PeekPanel"
 import { useTopbarCrumbs } from "@/hooks/useTopbarCrumbs"
 import {
   renderCell,
@@ -46,10 +47,10 @@ import {
 import {
   DEFAULT_COLUMNS,
   DEFAULT_SORT,
-  SORT_PARAM_BY_KEY,
   type FieldDefLite,
   type MilestoneDefLite,
-  isBuiltIn,
+  isSortable,
+  sortParamForKey,
 } from "@/lib/view_columns"
 import { LIFECYCLE_STATES, lifecycleLabel } from "@/lib/lifecycle"
 
@@ -62,7 +63,6 @@ const PAGE_SIZE = 15
 
 export function ProjectsViewPage() {
   useTopbarCrumbs(useMemo(() => [{ label: "Project Overviews" }], []))
-  const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
 
   const templateId = params.get("template_id") ?? undefined
@@ -136,7 +136,7 @@ export function ProjectsViewPage() {
   }, [reset.error])
 
   const sortApiParam = effectivePrefs.sort_key
-    ? SORT_PARAM_BY_KEY[effectivePrefs.sort_key]
+    ? sortParamForKey(effectivePrefs.sort_key)
     : undefined
 
   const list = useProjectList(
@@ -159,6 +159,18 @@ export function ProjectsViewPage() {
   const items = list.data?.items ?? []
   const refLabels = list.data?.ref_labels
 
+  // ?selected drives a docked peek rail (same pattern as /projects), resolved
+  // against the current page of items — no extra fetch for the list row.
+  const selectedId = params.get("selected")
+  const selectedProject = items.find((p) => p.id === selectedId) ?? null
+  const peekDocked = selectedProject !== null
+  function setSelectedId(next: string | null) {
+    const p = new URLSearchParams(params)
+    if (next) p.set("selected", next)
+    else p.delete("selected")
+    setParams(p)
+  }
+
   function persist(next: Partial<ViewColumnsPrefs>) {
     if (!templateId) return
     save.mutate({
@@ -173,7 +185,7 @@ export function ProjectsViewPage() {
   }
 
   function handleHeaderClick(columnKey: string) {
-    if (!isBuiltIn(columnKey)) return
+    if (!isSortable(columnKey)) return
     const currentKey = effectivePrefs.sort_key
     const currentDir = effectivePrefs.sort_direction
     if (currentKey !== columnKey) {
@@ -226,7 +238,9 @@ export function ProjectsViewPage() {
   }
 
   return (
-    <main className="space-y-5 px-6 py-7">
+    <main
+      className={"space-y-5 px-6 py-7 " + (peekDocked ? "lg:pr-[376px]" : "")}
+    >
       <div className="flex flex-wrap items-center justify-between gap-2">
         {pageTitle}
         <div className="flex flex-wrap items-center gap-2">
@@ -301,7 +315,7 @@ export function ProjectsViewPage() {
             <TableHeader>
               <TableRow>
                 {effectivePrefs.columns.map((k) => {
-                  const sortable = isBuiltIn(k)
+                  const sortable = isSortable(k)
                   const isSorted = effectivePrefs.sort_key === k
                   return (
                     <TableHead
@@ -348,8 +362,9 @@ export function ProjectsViewPage() {
                 items.map((p) => (
                   <TableRow
                     key={p.id}
+                    data-state={selectedId === p.id ? "selected" : undefined}
                     className="cursor-pointer odd:bg-muted/30"
-                    onClick={() => navigate(`/projects/${p.id}`)}
+                    onClick={() => setSelectedId(p.id)}
                   >
                     {effectivePrefs.columns.map((k) => (
                       <TableCell key={k}>
@@ -413,6 +428,25 @@ export function ProjectsViewPage() {
             sort_direction: effectivePrefs.sort_direction ?? undefined,
           }}
         />
+
+        {/* Docked peek rail — same pattern as /projects (Table/Grouped).
+            Fixed below the topbar, right of the global sidebar; selecting
+            another row swaps the rail contents. */}
+        {peekDocked && selectedProject && (
+          <div
+            className="
+              fixed right-0 top-[52px] bottom-0 z-30 w-[360px]
+              bg-background overflow-hidden
+              hidden lg:block
+            "
+          >
+            <PeekPanel
+              key={selectedProject.id}
+              project={selectedProject}
+              onClose={() => setSelectedId(null)}
+            />
+          </div>
+        )}
       </main>
   )
 }

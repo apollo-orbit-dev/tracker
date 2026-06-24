@@ -25,6 +25,7 @@ function focusIsEditable(): boolean {
  *
  *   g d → /            (Dashboard)
  *   g p → /projects    (Projects)
+ *   g c → /calendar    (Calendar)
  *   g a → /admin       (Admin; DM-and-up only)
  *
  * Sequence rules:
@@ -93,6 +94,9 @@ export function useGShortcuts() {
       } else if (k === "p") {
         e.preventDefault()
         navigateRef.current("/projects")
+      } else if (k === "c") {
+        e.preventDefault()
+        navigateRef.current("/calendar")
       } else if (k === "a") {
         if (!isDMRef.current) return // quietly no-op for non-DMs
         e.preventDefault()

@@ -207,3 +207,78 @@ def test_soft_deleted_user_not_eligible(env, client_as, db_session):
         json=_body(env, assignee_user_id=str(target.id)),
     )
     assert r.status_code == 422
+
+
+# ---- Phase 23.5: assignee status-only self-service ----------------------
+
+
+def _assignment_for_viewer(env, client_as):
+    """Editor creates an assignment whose assignee is the in-dept viewer.
+    Returns the assignment id."""
+    proj = env["proj"]
+    c = client_as(env["editor"])
+    return c.post(
+        f"/api/projects/{proj.id}/assignments",
+        json=_body(env, assignee_user_id=str(env["viewer"].id)),
+    ).json()["id"]
+
+
+def test_assignee_viewer_can_update_own_status(env, client_as):
+    proj = env["proj"]
+    aid = _assignment_for_viewer(env, client_as)
+    c = client_as(env["viewer"])  # a Viewer, and the assignee
+    r = c.patch(
+        f"/api/projects/{proj.id}/assignments/{aid}",
+        json={"status": "in_progress"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "in_progress"
+
+
+def test_assignee_viewer_cannot_update_other_fields(env, client_as):
+    proj = env["proj"]
+    aid = _assignment_for_viewer(env, client_as)
+    c = client_as(env["viewer"])
+    r = c.patch(
+        f"/api/projects/{proj.id}/assignments/{aid}",
+        json={"description": "sneaky edit"},
+    )
+    assert r.status_code == 403
+
+
+def test_assignee_viewer_cannot_smuggle_field_with_status(env, client_as):
+    proj = env["proj"]
+    aid = _assignment_for_viewer(env, client_as)
+    c = client_as(env["viewer"])
+    # status is allowed, but bundling another field is not.
+    r = c.patch(
+        f"/api/projects/{proj.id}/assignments/{aid}",
+        json={"status": "done", "assignee_user_id": str(env["editor"].id)},
+    )
+    assert r.status_code == 403
+
+
+def test_non_assignee_viewer_cannot_update_status(env, client_as):
+    proj = env["proj"]
+    aid = _assignment_for_viewer(env, client_as)
+    # `shared` can view the project (direct grant) but is not an editor on
+    # it and is not the assignee → no status write.
+    c = client_as(env["shared"])
+    r = c.patch(
+        f"/api/projects/{proj.id}/assignments/{aid}",
+        json={"status": "done"},
+    )
+    assert r.status_code == 403
+
+
+def test_editor_still_updates_all_fields(env, client_as):
+    proj = env["proj"]
+    aid = _assignment_for_viewer(env, client_as)
+    c = client_as(env["editor"])
+    r = c.patch(
+        f"/api/projects/{proj.id}/assignments/{aid}",
+        json={"description": "edited", "status": "done"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["description"] == "edited"
+    assert r.json()["status"] == "done"

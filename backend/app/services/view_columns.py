@@ -98,12 +98,17 @@ def validate_columns(
         raise ValidationError(reasons)
 
 
-def validate_sort(sort_key: str | None, sort_direction: str | None) -> None:
+def validate_sort(
+    sort_key: str | None,
+    sort_direction: str | None,
+    *,
+    live_custom_field_ids: set[uuid.UUID] = frozenset(),
+) -> None:
     """Raise ValidationError if the sort selection is malformed.
 
-    Per spec Q7: sort_key must be a built-in column (or null).
-    sort_direction must be 'asc' or 'desc' iff sort_key is set, and
-    null iff sort_key is null.
+    sort_key may be a built-in column, a `custom_field:<uuid>` key for a
+    live custom field of the template (Phase 23.4), or null. sort_direction
+    must be 'asc' or 'desc' iff sort_key is set, and null iff it's null.
     """
     paired = (sort_key is None) == (sort_direction is None)
     if not paired:
@@ -113,9 +118,15 @@ def validate_sort(sort_key: str | None, sort_direction: str | None) -> None:
     if sort_key is None:
         return
     if sort_key not in SORTABLE_BUILTIN_KEYS:
-        raise ValidationError(
-            [f"sort_key must be a built-in column: {sort_key}"]
-        )
+        parsed = parse_column_key(sort_key)
+        if parsed is None or parsed[0] != "custom_field":
+            raise ValidationError(
+                [f"sort_key must be a built-in or custom_field column: {sort_key}"]
+            )
+        if uuid.UUID(parsed[1]) not in live_custom_field_ids:
+            raise ValidationError(
+                [f"sort_key custom field not in this template: {sort_key}"]
+            )
     if sort_direction not in ("asc", "desc"):
         raise ValidationError(
             [f"sort_direction must be 'asc' or 'desc', got: {sort_direction}"]

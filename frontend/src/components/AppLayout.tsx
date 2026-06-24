@@ -43,6 +43,7 @@ import {
 import { useTemplateList } from "@/api/templates"
 import { type CustomView, useViewCreate, useViews } from "@/api/views"
 import { type FormListItem, useFormList } from "@/api/forms"
+import { useMyDepartments } from "@/api/me"
 import { useAuth, useLogout } from "@/hooks/useAuth"
 import { useCommandPalette } from "@/hooks/useCommandPalette"
 import { useDensity } from "@/hooks/useDensity"
@@ -248,6 +249,26 @@ function FormNavItem({ form }: { form: FormListItem }) {
   )
 }
 
+function deptCodeMap(
+  depts?: { id: string; code: string }[],
+): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const d of depts ?? []) out[d.id] = d.code
+  return out
+}
+
+function groupFormsByDept(
+  forms: FormListItem[],
+): { deptId: string; forms: FormListItem[] }[] {
+  const byDept = new Map<string, FormListItem[]>()
+  for (const f of forms) {
+    const arr = byDept.get(f.department_id) ?? []
+    arr.push(f)
+    byDept.set(f.department_id, arr)
+  }
+  return [...byDept.entries()].map(([deptId, forms]) => ({ deptId, forms }))
+}
+
 export function AppLayout() {
   const { data: user } = useAuth()
   const logout = useLogout()
@@ -263,6 +284,7 @@ export function AppLayout() {
   // Phase 17: Forms — its own sidebar section (active forms for everyone,
   // plus drafts for editors, per the dept-scoped list endpoint).
   const forms = useFormList()
+  const myDepts = useMyDepartments()
   const navigate = useNavigate()
   const [collapsed, setCollapsed] = useLocalStorage<boolean>(
     "tracker.sidebarCollapsed",
@@ -372,16 +394,32 @@ export function AppLayout() {
               )}
             </div>
             <SidebarGroupContent>
-              <SidebarMenu>
-                {(forms.data?.items ?? []).map((f) => (
-                  <FormNavItem key={f.id} form={f} />
-                ))}
-                {(forms.data?.items ?? []).length === 0 && (
-                  <p className="px-2 py-1 text-xs text-muted-foreground">
-                    No forms yet.
-                  </p>
-                )}
-              </SidebarMenu>
+              {(forms.data?.items ?? []).length === 0 ? (
+                <p className="px-2 py-1 text-xs text-muted-foreground">
+                  No forms yet.
+                </p>
+              ) : (
+                (() => {
+                  const codes = deptCodeMap(myDepts.data)
+                  const groups = groupFormsByDept(
+                    forms.data?.items ?? [],
+                  ).sort((a, b) =>
+                    (codes[a.deptId] ?? "").localeCompare(codes[b.deptId] ?? ""),
+                  )
+                  return groups.map((g) => (
+                    <div key={g.deptId} className="mb-1">
+                      <div className="px-2 pb-0.5 pt-1 text-[10px] font-semibold uppercase tracking-wide text-[hsl(var(--subtle-fg))]">
+                        {codes[g.deptId] ?? "—"}
+                      </div>
+                      <SidebarMenu>
+                        {g.forms.map((f) => (
+                          <FormNavItem key={f.id} form={f} />
+                        ))}
+                      </SidebarMenu>
+                    </div>
+                  ))
+                })()
+              )}
             </SidebarGroupContent>
           </SidebarGroup>
 

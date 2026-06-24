@@ -125,9 +125,27 @@ def test_validate_sort_accepts_built_in() -> None:
     validate_sort(None, None)
 
 
-def test_validate_sort_rejects_custom_field() -> None:
-    with pytest.raises(ValidationError, match="must be a built-in"):
-        validate_sort(f"custom_field:{uuid.uuid4()}", "asc")
+def test_validate_sort_accepts_live_custom_field() -> None:
+    # Phase 23.4: a custom-field sort key is valid when the field is live
+    # in the template.
+    fid = uuid.uuid4()
+    validate_sort(
+        f"custom_field:{fid}", "asc", live_custom_field_ids={fid}
+    )
+
+
+def test_validate_sort_rejects_unknown_custom_field() -> None:
+    # Custom field not in the template's live set → rejected.
+    with pytest.raises(ValidationError, match="not in this template"):
+        validate_sort(
+            f"custom_field:{uuid.uuid4()}", "asc", live_custom_field_ids=set()
+        )
+
+
+def test_validate_sort_rejects_non_sortable_key() -> None:
+    # A milestone key is neither a built-in nor a custom_field → rejected.
+    with pytest.raises(ValidationError, match="must be a built-in or custom_field"):
+        validate_sort(f"milestone:{uuid.uuid4()}:date", "asc")
 
 
 def test_validate_sort_rejects_unpaired() -> None:

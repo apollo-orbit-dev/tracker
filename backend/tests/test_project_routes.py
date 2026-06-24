@@ -900,6 +900,123 @@ def test_list_sort_rejects_unknown_key(db_session, client_as, admin_user):
     assert r.status_code == 422
 
 
+# ---- Phase 23.4: custom-field sort --------------------------------------
+
+
+def _seed_custom_field_projects(db_session, admin_user, field_type, values):
+    """Template + custom field of `field_type` + one project per value.
+
+    `values` is a list of (project_number, stored_value). Projects are
+    inserted directly via the ORM so bad/legacy data can be seeded too.
+    Returns (template, field).
+    """
+    from backend.tests.test_view_columns_routes import (
+        _make_template_with_one_field_and_one_milestone,
+    )
+    from backend.app.db.models import Project, TemplateFieldDef
+
+    t, _, _ = _make_template_with_one_field_and_one_milestone(db_session)
+    fd = TemplateFieldDef(
+        template_id=t.id, name="CF", field_type=field_type, order_index=5
+    )
+    db_session.add(fd)
+    db_session.flush()
+    for number, val in values:
+        db_session.add(
+            Project(
+                project_number=number,
+                title=number,
+                template_id=t.id,
+                created_by=admin_user.id,
+                custom_field_values={str(fd.id): val},
+            )
+        )
+    db_session.commit()
+    return t, fd
+
+
+def test_sort_by_custom_number_field_is_numeric(db_session, client_as, admin_user):
+    c = client_as(admin_user)
+    t, fd = _seed_custom_field_projects(
+        db_session,
+        admin_user,
+        "integer",
+        [("25710001", 2), ("25710002", 10), ("25710003", 1)],
+    )
+    r = c.get(
+        f"/api/projects?template_id={t.id}"
+        f"&sort=custom_field:{fd.id}&sort_direction=asc"
+    )
+    assert r.status_code == 200, r.text
+    vals = [it["custom_field_values"].get(str(fd.id)) for it in r.json()["items"]]
+    # Numeric order, not lexicographic ("10" < "2").
+    assert vals == [1, 2, 10], vals
+
+
+def test_sort_by_custom_date_field_is_chronological(db_session, client_as, admin_user):
+    c = client_as(admin_user)
+    t, fd = _seed_custom_field_projects(
+        db_session,
+        admin_user,
+        "date",
+        [
+            ("25711001", "2026-03-01"),
+            ("25711002", "2026-01-15"),
+            ("25711003", "2026-12-31"),
+        ],
+    )
+    r = c.get(
+        f"/api/projects?template_id={t.id}"
+        f"&sort=custom_field:{fd.id}&sort_direction=asc"
+    )
+    assert r.status_code == 200, r.text
+    vals = [it["custom_field_values"].get(str(fd.id)) for it in r.json()["items"]]
+    assert vals == ["2026-01-15", "2026-03-01", "2026-12-31"], vals
+
+
+def test_sort_by_custom_number_field_tolerates_bad_data(
+    db_session, client_as, admin_user
+):
+    c = client_as(admin_user)
+    # One row holds non-numeric garbage (legacy data, bypasses validation).
+    t, fd = _seed_custom_field_projects(
+        db_session,
+        admin_user,
+        "integer",
+        [("25712001", 2), ("25712002", 10), ("25712003", "not-a-number")],
+    )
+    r = c.get(
+        f"/api/projects?template_id={t.id}"
+        f"&sort=custom_field:{fd.id}&sort_direction=asc"
+    )
+    assert r.status_code == 200, r.text
+    items = r.json()["items"]
+    # Guarded cast → the bad value sorts last, query does not 500.
+    assert items[-1]["custom_field_values"][str(fd.id)] == "not-a-number"
+
+
+def test_sort_custom_field_requires_template_id(db_session, client_as, admin_user):
+    c = client_as(admin_user)
+    t, fd = _seed_custom_field_projects(
+        db_session, admin_user, "integer", [("25713001", 1)]
+    )
+    r = c.get(f"/api/projects?sort=custom_field:{fd.id}")
+    assert r.status_code == 422
+
+
+def test_sort_unknown_custom_field_is_422(db_session, client_as, admin_user):
+    import uuid as _uuid
+
+    c = client_as(admin_user)
+    t, fd = _seed_custom_field_projects(
+        db_session, admin_user, "integer", [("25714001", 1)]
+    )
+    r = c.get(
+        f"/api/projects?template_id={t.id}&sort=custom_field:{_uuid.uuid4()}"
+    )
+    assert r.status_code == 422
+
+
 def test_list_no_sort_default_created_desc_unchanged(
     db_session, client_as, admin_user
 ):

@@ -31,6 +31,11 @@ function commonStubs(user: typeof ADMIN) {
       respond: () => jsonResponse(user),
     },
     {
+      // The departments hook returns a bare array, not a paginated object.
+      match: (u) => u.includes("/api/auth/me/departments"),
+      respond: () => jsonResponse([]),
+    },
+    {
       match: () => true,
       respond: () =>
         jsonResponse({ items: [], total: 0, limit: 50, offset: 0 }),
@@ -64,6 +69,28 @@ describe("useGShortcuts", () => {
     await waitFor(() => {
       expect(
         screen.getByRole("heading", { level: 1, name: "Projects" }),
+      ).toBeInTheDocument()
+    })
+  })
+
+  it("g then c navigates to /calendar", async () => {
+    commonStubs(ADMIN)
+    renderWithProviders(<App />, { route: "/" })
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /search or run a command/i }),
+      ).toBeInTheDocument()
+    })
+
+    fireEvent.keyDown(window, { key: "g" })
+    fireEvent.keyDown(window, { key: "c" })
+
+    // The calendar page renders a Month/Agenda view toggle (role="tab");
+    // the Agenda tab is unique to that route and role-independent.
+    await waitFor(() => {
+      expect(
+        screen.getByRole("tab", { name: "Agenda" }),
       ).toBeInTheDocument()
     })
   })

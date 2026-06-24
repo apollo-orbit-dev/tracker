@@ -191,9 +191,10 @@ def test_put_rejects_custom_field_not_in_template(
     assert r.status_code == 422
 
 
-def test_put_rejects_non_built_in_sort_key(
+def test_put_accepts_live_custom_field_sort_key(
     db_session, client_as, admin_user
 ):
+    # Phase 23.4: sorting by a live custom-field column is now allowed.
     c = client_as(admin_user)
     t, fd, _ = _make_template_with_one_field_and_one_milestone(db_session)
     db_session.commit()
@@ -202,6 +203,27 @@ def test_put_rejects_non_built_in_sort_key(
         json={
             "columns": [f"custom_field:{fd.id}"],
             "sort_key": f"custom_field:{fd.id}",
+            "sort_direction": "asc",
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["sort_key"] == f"custom_field:{fd.id}"
+
+
+def test_put_rejects_unknown_custom_field_sort_key(
+    db_session, client_as, admin_user
+):
+    # A custom-field sort key not present in the template is still rejected.
+    import uuid as _uuid
+
+    c = client_as(admin_user)
+    t, _, _ = _make_template_with_one_field_and_one_milestone(db_session)
+    db_session.commit()
+    r = c.put(
+        f"/api/projects/view/{t.id}/columns",
+        json={
+            "columns": [],
+            "sort_key": f"custom_field:{_uuid.uuid4()}",
             "sort_direction": "asc",
         },
     )

@@ -25,7 +25,7 @@ from fastapi import (
     status,
 )
 from pydantic import ValidationError as PydanticValidationError
-from sqlalchemy import func, or_, select
+from sqlalchemy import Date, Numeric, case, cast, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -108,6 +108,99 @@ _SORT_COLUMNS = {
     "created_at": Project.created_at,
     "updated_at": Project.updated_at,
 }
+
+# Phase 23.4: custom-field sort. A sort key of the form
+# "custom_field:<field_def_id>" orders by the JSONB value at that key. The
+# cast is chosen by the field def's declared type (never by the stored
+# value) and guarded by a regex so a row with malformed data sorts last
+# instead of 500-ing the query.
+_CUSTOM_FIELD_SORT_PREFIX = "custom_field:"
+
+# Field types whose JSONB value sorts numerically / chronologically.
+# Everything else (text, select, boolean, composite conditional/range/
+# duration fields) sorts lexicographically on the JSON text.
+_NUMERIC_SORT_FIELD_TYPES = frozenset(
+    {"integer", "decimal", "currency", "percent", "auto_number"}
+)
+_DATE_SORT_FIELD_TYPES = frozenset({"date"})
+
+
+def _custom_field_order_by(
+    db: Session,
+    template_id: uuid.UUID | None,
+    field_id_str: str,
+    direction: str,
+):
+    """ORDER BY expression for a `custom_field:<id>` sort key.
+
+    422 if there's no template_id to resolve the field's type against, or
+    the field isn't a live def of that template. The id is validated
+    against the template's field defs and bound as a JSONB path — it never
+    concatenates into SQL.
+    """
+    if template_id is None:
+        raise HTTPException(
+            status_code=422, detail="custom_field sort requires template_id"
+        )
+    bad = HTTPException(
+        status_code=422,
+        detail=f"unknown sort key: {_CUSTOM_FIELD_SORT_PREFIX}{field_id_str}",
+    )
+    try:
+        fid = uuid.UUID(field_id_str)
+    except ValueError:
+        raise bad
+    fd = db.execute(
+        select(TemplateFieldDef).where(
+            TemplateFieldDef.id == fid,
+            TemplateFieldDef.template_id == template_id,
+            TemplateFieldDef.deleted_at.is_(None),
+        )
+    ).scalar_one_or_none()
+    if fd is None:
+        raise bad
+    text_val = Project.custom_field_values[field_id_str].astext
+    if fd.field_type in _NUMERIC_SORT_FIELD_TYPES:
+        expr = case(
+            (text_val.op("~")(r"^-?\d+(\.\d+)?$"), cast(text_val, Numeric)),
+            else_=None,
+        )
+    elif fd.field_type in _DATE_SORT_FIELD_TYPES:
+        expr = case(
+            (
+                text_val.op("~")(r"^\d{4}-\d{2}-\d{2}"),
+                cast(func.substr(text_val, 1, 10), Date),
+            ),
+            else_=None,
+        )
+    else:
+        expr = func.lower(text_val)
+    return expr.asc().nullslast() if direction == "asc" else expr.desc().nullslast()
+
+
+def _apply_sort(base, db, template_id, sort, sort_direction):
+    """Apply ORDER BY for `sort`/`sort_direction`. Shared by list + export.
+
+    Falls back to created_at DESC when `sort` is None. Built-in keys go
+    through `_SORT_COLUMNS`; `custom_field:<id>` keys go through the JSONB
+    helper. Anything else → 422.
+    """
+    if sort is None:
+        return base.order_by(Project.created_at.desc())
+    direction = (sort_direction or "desc").lower()
+    if direction not in ("asc", "desc"):
+        raise HTTPException(
+            status_code=422, detail="sort_direction must be 'asc' or 'desc'"
+        )
+    if sort.startswith(_CUSTOM_FIELD_SORT_PREFIX):
+        field_id_str = sort[len(_CUSTOM_FIELD_SORT_PREFIX):]
+        return base.order_by(
+            _custom_field_order_by(db, template_id, field_id_str, direction)
+        )
+    if sort not in _SORT_COLUMNS:
+        raise HTTPException(status_code=422, detail=f"unknown sort key: {sort}")
+    col = _SORT_COLUMNS[sort]
+    return base.order_by(col.asc() if direction == "asc" else col.desc())
 
 
 def _fetch_project(db: Session, pid: uuid.UUID) -> Project:
@@ -375,26 +468,11 @@ def list_projects(
             raise HTTPException(status_code=422, detail=e.reasons)
         if clause is not None:
             base = base.where(clause)
-    # Phase 2.7.2: sort whitelist. When `sort` is omitted, fall back to
-    # the existing default (created_at DESC). When set, it must be one
-    # of the keys in _SORT_COLUMNS — anything else is 422 (caller error,
-    # not a 500). Direction defaults to 'desc' if omitted.
-    if sort is not None:
-        if sort not in _SORT_COLUMNS:
-            raise HTTPException(
-                status_code=422,
-                detail=f"unknown sort key: {sort}",
-            )
-        direction = (sort_direction or "desc").lower()
-        if direction not in ("asc", "desc"):
-            raise HTTPException(
-                status_code=422,
-                detail="sort_direction must be 'asc' or 'desc'",
-            )
-        col = _SORT_COLUMNS[sort]
-        base = base.order_by(col.asc() if direction == "asc" else col.desc())
-    else:
-        base = base.order_by(Project.created_at.desc())
+    # Phase 2.7.2 / 23.4: sort whitelist. Built-in keys map to ORM columns;
+    # `custom_field:<id>` keys order by the JSONB value (type-aware, guarded
+    # casts). Unknown keys → 422 (caller error). Direction defaults to
+    # 'desc'. No string ever concatenates into SQL.
+    base = _apply_sort(base, db, template_id, sort, sort_direction)
 
     total = db.execute(
         select(func.count()).select_from(base.subquery())
@@ -566,19 +644,8 @@ def export_projects(
                 | Project.project_number.ilike(pattern)
                 | func.coalesce(Project.client_project_number, "").ilike(pattern)
             )
-    if sort is not None:
-        if sort not in _SORT_COLUMNS:
-            raise HTTPException(status_code=422, detail=f"unknown sort key: {sort}")
-        direction = (sort_direction or "desc").lower()
-        if direction not in ("asc", "desc"):
-            raise HTTPException(
-                status_code=422,
-                detail="sort_direction must be 'asc' or 'desc'",
-            )
-        col = _SORT_COLUMNS[sort]
-        base = base.order_by(col.asc() if direction == "asc" else col.desc())
-    else:
-        base = base.order_by(Project.created_at.desc())
+    # Same sort dialect as list_projects (built-in + custom_field:<id>).
+    base = _apply_sort(base, db, template.id, sort, sort_direction)
 
     # Hard cap before loading rows.
     total = db.execute(

@@ -1,4 +1,5 @@
 import { screen, waitFor } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import App from "@/App"
@@ -150,5 +151,97 @@ describe("Assignments card", () => {
 
     expect(await screen.findByText("Assignments")).toBeInTheDocument()
     expect(await screen.findByText("Wire the relay panel")).toBeInTheDocument()
+  })
+
+  it("lets the assignee (a viewer) change status inline", async () => {
+    const VIEWER = {
+      id: "vvvv1111-vvvv-vvvv-vvvv-vvvvvvvvvvvv",
+      email: "viewer@example.com",
+      display_name: "Viewer",
+      roles: ["viewer"],
+    }
+    const project = { ...makeProject(), can_edit: false }
+    const assignment = { ...ASSIGNMENT, assignee_user_id: VIEWER.id }
+    const user = userEvent.setup()
+    const fetchMock = stubFetchByRoute([
+      { match: (u) => u.endsWith("/api/auth/me"), respond: () => jsonResponse(VIEWER) },
+      {
+        match: (u) => u.endsWith(`/api/projects/${PID}`),
+        respond: () => jsonResponse(project),
+      },
+      {
+        match: (u) => u.includes(`/api/projects/${PID}/assignments/eligible-users`),
+        respond: () => jsonResponse({ items: [], total: 0 }),
+      },
+      {
+        match: (u, init) =>
+          u.includes(`/api/projects/${PID}/assignments/`) &&
+          init?.method === "PATCH",
+        respond: () => jsonResponse({ ...assignment, status: "done" }),
+      },
+      {
+        match: (u) => u.includes(`/api/projects/${PID}/assignments`),
+        respond: () => jsonResponse({ items: [assignment], total: 1 }),
+      },
+      ...templateStubs,
+      ...taxonomyStubs,
+    ])
+
+    renderWithProviders(<App />, { route: ROUTE })
+
+    const control = await screen.findByRole("combobox", {
+      name: /status for Wire the relay panel/i,
+    })
+    await user.click(control)
+    await user.click(await screen.findByRole("option", { name: "Done" }))
+
+    await waitFor(() => {
+      const patch = fetchMock.mock.calls.find(
+        ([u, init]: [string, RequestInit?]) =>
+          String(u).includes(`/api/projects/${PID}/assignments/`) &&
+          init?.method === "PATCH",
+      )
+      expect(patch).toBeTruthy()
+      expect(JSON.parse(patch![1]!.body as string)).toEqual({ status: "done" })
+    })
+  })
+
+  it("shows a static badge (no control) for a viewer who is not the assignee", async () => {
+    const VIEWER = {
+      id: "vvvv2222-vvvv-vvvv-vvvv-vvvvvvvvvvvv",
+      email: "viewer2@example.com",
+      display_name: "Viewer Two",
+      roles: ["viewer"],
+    }
+    const project = { ...makeProject(), can_edit: false }
+    // assignee is ADMIN, not this viewer.
+    stubFetchByRoute([
+      { match: (u) => u.endsWith("/api/auth/me"), respond: () => jsonResponse(VIEWER) },
+      {
+        match: (u) => u.endsWith(`/api/projects/${PID}`),
+        respond: () => jsonResponse(project),
+      },
+      {
+        match: (u) => u.includes(`/api/projects/${PID}/assignments/eligible-users`),
+        respond: () => jsonResponse({ items: [], total: 0 }),
+      },
+      {
+        match: (u) => u.includes(`/api/projects/${PID}/assignments`),
+        respond: () => jsonResponse({ items: [ASSIGNMENT], total: 1 }),
+      },
+      ...templateStubs,
+      ...taxonomyStubs,
+    ])
+
+    renderWithProviders(<App />, { route: ROUTE })
+
+    expect(await screen.findByText("Wire the relay panel")).toBeInTheDocument()
+    // The status badge renders, but not an editable control.
+    expect(screen.getByText("Open")).toBeInTheDocument()
+    expect(
+      screen.queryByRole("combobox", {
+        name: /status for Wire the relay panel/i,
+      }),
+    ).not.toBeInTheDocument()
   })
 })
