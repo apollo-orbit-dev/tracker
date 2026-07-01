@@ -40,3 +40,25 @@ def test_bad_range_422(env, client_as):
     c = client_as(env["ed"])
     assert c.get("/api/calendar/events?start=2026-07-10&end=2026-07-01").status_code == 422
     assert c.get("/api/calendar/events?start=2026-01-01&end=2026-12-31").status_code == 422
+
+
+def test_multi_select_department_filter(env, client_as, db_session):
+    # Phase 26.2: give the editor both departments, an event in each, then
+    # filter by one / both via repeated department_id params.
+    db_session.add(UserRole(user_id=env["ed"].id, role_id="project_editor",
+                            department_id=env["b"].id))
+    db_session.flush()
+    c = client_as(env["ed"])
+    c.post("/api/events", json={"department_id": str(env["a"].id), "title": "A-ev", "start_date": "2026-07-06"})
+    c.post("/api/events", json={"department_id": str(env["b"].id), "title": "B-ev", "start_date": "2026-07-07"})
+    base = "/api/calendar/events?start=2026-07-01&end=2026-07-31"
+
+    def titles(url):
+        r = c.get(url)
+        assert r.status_code == 200, r.text
+        return {i["title"] for i in r.json()["items"]}
+
+    assert titles(base) == {"A-ev", "B-ev"}
+    assert titles(f"{base}&department_id={env['a'].id}") == {"A-ev"}
+    assert titles(f"{base}&department_id={env['b'].id}") == {"B-ev"}
+    assert titles(f"{base}&department_id={env['a'].id}&department_id={env['b'].id}") == {"A-ev", "B-ev"}

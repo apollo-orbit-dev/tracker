@@ -13,6 +13,19 @@ from backend.app.auth.scope import accessible_department_ids
 from backend.app.db.models import Project, Template, User
 
 
+def _norm(
+    single: uuid.UUID | None,
+    many: list[uuid.UUID] | None,
+) -> list[uuid.UUID] | None:
+    """Collapse a singular id + an optional list into one list-or-None.
+    A non-empty list wins; otherwise fall back to the single id; else None."""
+    if many:
+        return list(many)
+    if single is not None:
+        return [single]
+    return None
+
+
 def scoped_project_ids(
     db: Session,
     user: User,
@@ -21,9 +34,21 @@ def scoped_project_ids(
     department_id: uuid.UUID | None = None,
     client_id: uuid.UUID | None = None,
     discipline_id: uuid.UUID | None = None,
+    department_ids: list[uuid.UUID] | None = None,
+    client_ids: list[uuid.UUID] | None = None,
+    discipline_ids: list[uuid.UUID] | None = None,
 ) -> Select:
-    """SELECT of project ids the caller can see (dept scope + optional DCD)."""
+    """SELECT of project ids the caller can see (dept scope + optional DCD).
+
+    Each DCD axis accepts either a single id (dashboard) or a list of ids
+    (calendar multi-select); a list filters with IN. The filter only ever
+    *narrows* within the caller's accessible departments — an id outside
+    ``allowed`` simply matches nothing, so it can't widen visibility.
+    """
     allowed = accessible_department_ids(user)
+    depts = _norm(department_id, department_ids)
+    clients = _norm(client_id, client_ids)
+    disciplines = _norm(discipline_id, discipline_ids)
     q = (
         select(Project.id)
         .join(Template, Project.template_id == Template.id)
@@ -36,10 +61,10 @@ def scoped_project_ids(
             q = q.where(Project.id.is_(None))
         else:
             q = q.where(Template.department_id.in_(allowed))
-    if department_id is not None:
-        q = q.where(Template.department_id == department_id)
-    if client_id is not None:
-        q = q.where(Template.client_id == client_id)
-    if discipline_id is not None:
-        q = q.where(Template.discipline_id == discipline_id)
+    if depts is not None:
+        q = q.where(Template.department_id.in_(depts))
+    if clients is not None:
+        q = q.where(Template.client_id.in_(clients))
+    if disciplines is not None:
+        q = q.where(Template.discipline_id.in_(disciplines))
     return q

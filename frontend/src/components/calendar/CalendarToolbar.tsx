@@ -1,58 +1,29 @@
 import { format } from "date-fns"
-import { CalendarDays, Check, Plus, Rows3 } from "lucide-react"
+import {
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  Plus,
+  Rows3,
+  SlidersHorizontal,
+} from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import { CalendarTypeChips } from "@/components/calendar/CalendarTypeChips"
+import { FilterChecklist } from "@/components/calendar/FilterChecklist"
 import { Segmented } from "@/components/Segmented"
-import { cn } from "@/lib/utils"
 import { useMyDepartments } from "@/api/me"
 import { useTaxonomyList } from "@/api/taxonomy"
 import { useAuth } from "@/hooks/useAuth"
 import { hasRole } from "@/lib/roles"
+import type { CalendarFilters, CalendarView } from "@/components/calendar/types"
 
-const NONE = "__all__"
-
-export type CalendarFilters = {
-  department_id: string | null
-  client_id: string | null
-  discipline_id: string | null
-  showMilestones: boolean
-  showAssignments: boolean
-  showHolidays: boolean
-  showEvents: boolean
-}
-
-type TypeToggleChipProps = {
-  active: boolean
-  colorOn: string
-  label: string
-  onClick: () => void
-}
-
-function TypeToggleChip({ active, colorOn, label, onClick }: TypeToggleChipProps) {
-  return (
-    <button
-      type="button"
-      aria-pressed={active}
-      onClick={onClick}
-      className={cn(
-        "inline-flex h-[26px] items-center gap-1 rounded-full border px-3 text-xs font-medium transition-colors",
-        active
-          ? cn(colorOn, "border-transparent")
-          : "border text-muted-foreground hover:text-foreground",
-      )}
-    >
-      {active && <Check className="size-3.5" />}
-      {label}
-    </button>
-  )
-}
+export type { CalendarFilters, CalendarView } from "@/components/calendar/types"
 
 export function CalendarToolbar({
   month,
@@ -69,13 +40,12 @@ export function CalendarToolbar({
   onPrev: () => void
   onNext: () => void
   onToday: () => void
-  view: "month" | "agenda"
-  onView: (v: "month" | "agenda") => void
+  view: CalendarView
+  onView: (v: CalendarView) => void
   filters: CalendarFilters
   onFilters: (f: CalendarFilters) => void
   onCreateEvent?: () => void
 }) {
-  // useMyDepartments returns DepartmentBrief[] directly (not { items: [] })
   const depts = useMyDepartments()
   const clients = useTaxonomyList("clients", false)
   const disciplines = useTaxonomyList("disciplines", false)
@@ -83,118 +53,85 @@ export function CalendarToolbar({
   const canCreateEvent = hasRole(user?.roles ?? [], "project_editor")
   const set = (patch: Partial<CalendarFilters>) =>
     onFilters({ ...filters, ...patch })
+  const filterCount =
+    filters.departmentIds.length +
+    filters.clientIds.length +
+    filters.disciplineIds.length
+
+  const segmented = (
+    <Segmented
+      value={view}
+      onChange={onView}
+      aria-label="Calendar view"
+      options={[
+        { value: "month" as const, label: "Month", icon: <CalendarDays className="size-3.5" /> },
+        { value: "schedule" as const, label: "Schedule", icon: <Rows3 className="size-3.5" /> },
+      ]}
+    />
+  )
+  const newEventBtn = canCreateEvent && onCreateEvent && (
+    <Button size="sm" onClick={onCreateEvent}>
+      <Plus className="size-3.5" />
+      Event
+    </Button>
+  )
+
+  // Schedule view: minimal toolbar — its filters + nav live in the rail.
+  if (view === "schedule") {
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <h1 className="mr-auto text-lg font-semibold">Up next</h1>
+        {segmented}
+        {newEventBtn}
+      </div>
+    )
+  }
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <h1 className="mr-auto text-lg font-semibold">
-        {format(month, "MMMM yyyy")}
-      </h1>
+    <div className="space-y-2.5">
+      <div className="flex flex-wrap items-center gap-2">
+        <h1 className="mr-auto text-lg font-semibold">
+          {format(month, "MMMM yyyy")}
+        </h1>
 
-      <Button variant="outline" size="sm" onClick={onToday}>
-        Today
-      </Button>
-      <Button variant="outline" size="sm" onClick={onPrev}>
-        ‹
-      </Button>
-      <Button variant="outline" size="sm" onClick={onNext}>
-        ›
-      </Button>
-
-      <Segmented
-        value={view}
-        onChange={onView}
-        aria-label="Calendar view"
-        options={[
-          { value: "month" as const, label: "Month", icon: <CalendarDays className="size-3.5" /> },
-          { value: "agenda" as const, label: "Agenda", icon: <Rows3 className="size-3.5" /> },
-        ]}
-      />
-
-      <Select
-        value={filters.department_id ?? NONE}
-        onValueChange={(v) =>
-          set({ department_id: v === NONE ? null : v })
-        }
-      >
-        <SelectTrigger className="w-40">
-          <SelectValue placeholder="All departments" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={NONE}>All departments</SelectItem>
-          {(depts.data ?? []).map((d) => (
-            <SelectItem key={d.id} value={d.id}>
-              {d.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-
-      <Select
-        value={filters.client_id ?? NONE}
-        onValueChange={(v) => set({ client_id: v === NONE ? null : v })}
-      >
-        <SelectTrigger className="w-36">
-          <SelectValue placeholder="All clients" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={NONE}>All clients</SelectItem>
-          {(clients.data?.items ?? []).map((c) => (
-            <SelectItem key={c.id} value={c.id}>
-              {c.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-
-      <Select
-        value={filters.discipline_id ?? NONE}
-        onValueChange={(v) =>
-          set({ discipline_id: v === NONE ? null : v })
-        }
-      >
-        <SelectTrigger className="w-36">
-          <SelectValue placeholder="All disciplines" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={NONE}>All disciplines</SelectItem>
-          {(disciplines.data?.items ?? []).map((d) => (
-            <SelectItem key={d.id} value={d.id}>
-              {d.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-
-      <TypeToggleChip
-        active={filters.showMilestones}
-        colorOn="bg-indigo-500/15 text-indigo-700 dark:text-indigo-300"
-        label="Milestones"
-        onClick={() => set({ showMilestones: !filters.showMilestones })}
-      />
-      <TypeToggleChip
-        active={filters.showAssignments}
-        colorOn="bg-amber-500/15 text-amber-700 dark:text-amber-300"
-        label="Assignments"
-        onClick={() => set({ showAssignments: !filters.showAssignments })}
-      />
-      <TypeToggleChip
-        active={filters.showHolidays}
-        colorOn="bg-teal-500/15 text-teal-700 dark:text-teal-300"
-        label="Holidays"
-        onClick={() => set({ showHolidays: !filters.showHolidays })}
-      />
-      <TypeToggleChip
-        active={filters.showEvents}
-        colorOn="bg-violet-500/15 text-violet-700 dark:text-violet-300"
-        label="Events"
-        onClick={() => set({ showEvents: !filters.showEvents })}
-      />
-      {canCreateEvent && onCreateEvent && (
-        <Button size="sm" onClick={onCreateEvent}>
-          <Plus className="size-3.5" />
-          Event
+        <Button variant="outline" size="sm" onClick={onToday}>
+          Today
         </Button>
-      )}
+        <Button variant="outline" size="icon" className="size-8" aria-label="Previous month" onClick={onPrev}>
+          <ChevronLeft className="size-4" />
+        </Button>
+        <Button variant="outline" size="icon" className="size-8" aria-label="Next month" onClick={onNext}>
+          <ChevronRight className="size-4" />
+        </Button>
+
+        {segmented}
+
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" size="sm" className="gap-1.5">
+              <SlidersHorizontal className="size-3.5" />
+              Filters
+              {filterCount > 0 && (
+                <span className="rounded-full bg-primary/15 px-1.5 text-[11px] font-semibold text-primary">
+                  {filterCount}
+                </span>
+              )}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-64 space-y-3 p-3">
+            <FilterChecklist label="Departments" options={depts.data ?? []}
+              selected={filters.departmentIds} onChange={(ids) => set({ departmentIds: ids })} />
+            <FilterChecklist label="Clients" options={clients.data?.items ?? []}
+              selected={filters.clientIds} onChange={(ids) => set({ clientIds: ids })} />
+            <FilterChecklist label="Disciplines" options={disciplines.data?.items ?? []}
+              selected={filters.disciplineIds} onChange={(ids) => set({ disciplineIds: ids })} />
+          </PopoverContent>
+        </Popover>
+
+        {newEventBtn}
+      </div>
+
+      <CalendarTypeChips filters={filters} onChange={onFilters} />
     </div>
   )
 }

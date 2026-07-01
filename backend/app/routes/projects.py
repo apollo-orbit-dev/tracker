@@ -81,6 +81,7 @@ from backend.app.services.project_create import (
     live_milestone_defs as _live_milestone_defs,
 )
 from backend.app.services.lifecycle import (
+    VALID_STATES,
     LifecycleError,
     assert_transition_allowed,
     check_active_readiness,
@@ -178,12 +179,76 @@ def _custom_field_order_by(
     return expr.asc().nullslast() if direction == "asc" else expr.desc().nullslast()
 
 
+# Phase 27.4: milestone-date sort (open item 51). A sort key of the form
+# "milestone:<def_id>:planned|actual|date" orders projects by that template
+# milestone def's date. "actual" reads actual_date; "planned"/"date" read
+# planned_date (a single-date_model milestone stores its value in
+# planned_date — same mapping the cell renderer uses). The project→milestone
+# relationship is at-most-one live row per def, so a correlated scalar
+# subquery yields the orderable date; NULLS LAST keeps missing/blank dates
+# at the end regardless of direction.
+_MILESTONE_SORT_PREFIX = "milestone:"
+
+
+def _milestone_order_by(
+    db: Session,
+    template_id: uuid.UUID | None,
+    rest: str,
+    direction: str,
+):
+    """ORDER BY expression for a `milestone:<def_id>:<mode>` sort key.
+
+    422 if there's no template_id, the def isn't a live milestone def of that
+    template, or <mode> isn't planned/actual/date. The id is validated against
+    the template's milestone defs and bound — it never concatenates into SQL.
+    """
+    if template_id is None:
+        raise HTTPException(
+            status_code=422, detail="milestone sort requires template_id"
+        )
+    bad = HTTPException(
+        status_code=422,
+        detail=f"unknown sort key: {_MILESTONE_SORT_PREFIX}{rest}",
+    )
+    def_id_str, _, mode = rest.partition(":")
+    if mode not in ("planned", "actual", "date"):
+        raise bad
+    try:
+        def_id = uuid.UUID(def_id_str)
+    except ValueError:
+        raise bad
+    md = db.execute(
+        select(TemplateMilestoneDef).where(
+            TemplateMilestoneDef.id == def_id,
+            TemplateMilestoneDef.template_id == template_id,
+            TemplateMilestoneDef.deleted_at.is_(None),
+        )
+    ).scalar_one_or_none()
+    if md is None:
+        raise bad
+    date_col = (
+        Milestone.actual_date if mode == "actual" else Milestone.planned_date
+    )
+    expr = (
+        select(date_col)
+        .where(
+            Milestone.project_id == Project.id,
+            Milestone.template_milestone_def_id == def_id,
+            Milestone.deleted_at.is_(None),
+        )
+        .limit(1)
+        .scalar_subquery()
+    )
+    return expr.asc().nullslast() if direction == "asc" else expr.desc().nullslast()
+
+
 def _apply_sort(base, db, template_id, sort, sort_direction):
     """Apply ORDER BY for `sort`/`sort_direction`. Shared by list + export.
 
     Falls back to created_at DESC when `sort` is None. Built-in keys go
     through `_SORT_COLUMNS`; `custom_field:<id>` keys go through the JSONB
-    helper. Anything else → 422.
+    helper; `milestone:<def_id>:<mode>` keys go through the milestone helper.
+    Anything else → 422.
     """
     if sort is None:
         return base.order_by(Project.created_at.desc())
@@ -196,6 +261,11 @@ def _apply_sort(base, db, template_id, sort, sort_direction):
         field_id_str = sort[len(_CUSTOM_FIELD_SORT_PREFIX):]
         return base.order_by(
             _custom_field_order_by(db, template_id, field_id_str, direction)
+        )
+    if sort.startswith(_MILESTONE_SORT_PREFIX):
+        rest = sort[len(_MILESTONE_SORT_PREFIX):]
+        return base.order_by(
+            _milestone_order_by(db, template_id, rest, direction)
         )
     if sort not in _SORT_COLUMNS:
         raise HTTPException(status_code=422, detail=f"unknown sort key: {sort}")
@@ -367,6 +437,18 @@ def _live_milestones(db: Session, project_id: uuid.UUID) -> list[Milestone]:
 # ---- read endpoints (viewer+) -------------------------------------------
 
 
+def _reject_unknown_lifecycle(states: list[str]) -> None:
+    """422 on any lifecycle value outside the known set (whitelist at the
+    boundary). A bound `.in_()` is injection-safe regardless, but rejecting
+    bad input early keeps the filter contract explicit."""
+    unknown = [s for s in states if s not in VALID_STATES]
+    if unknown:
+        raise HTTPException(
+            status_code=422,
+            detail=f"invalid lifecycle_state: {', '.join(unknown)}",
+        )
+
+
 @router.get("", response_model=ProjectListResponse)
 def list_projects(
     limit: int = Query(default=50, ge=1, le=200),
@@ -375,11 +457,14 @@ def list_projects(
     # Phase 4.8.14: filter by template taxonomy. Useful for "projects
     # under DIV1 across all clients", "everything for CON regardless of
     # discipline", etc. Composable with template_id (rarely useful but
-    # not blocked).
-    department_id: uuid.UUID | None = Query(default=None),
-    client_id: uuid.UUID | None = Query(default=None),
-    discipline_id: uuid.UUID | None = Query(default=None),
-    lifecycle_state: str | None = Query(default=None),
+    # not blocked). Phase 27.3: each is multi-select — repeated query
+    # params (?department_id=a&department_id=b) collect into a list and
+    # filter with IN. A single value still works (one-element list), so
+    # existing single-select callers are unaffected.
+    department_id: list[uuid.UUID] = Query(default=[]),
+    client_id: list[uuid.UUID] = Query(default=[]),
+    discipline_id: list[uuid.UUID] = Query(default=[]),
+    lifecycle_state: list[str] = Query(default=[]),
     q: str | None = Query(default=None),
     # Phase 7.17: optional JSON-encoded MetricConditions over project
     # fields, validated/compiled through the metric engine. Requires
@@ -419,22 +504,22 @@ def list_projects(
         base = base.where(or_(*clauses))
     if template_id is not None:
         base = base.where(Project.template_id == template_id)
-    if (
-        department_id is not None
-        or client_id is not None
-        or discipline_id is not None
-    ):
+    if department_id or client_id or discipline_id:
         if not template_joined:
             base = base.join(Template, Project.template_id == Template.id)
             template_joined = True
-        if department_id is not None:
-            base = base.where(Template.department_id == department_id)
-        if client_id is not None:
-            base = base.where(Template.client_id == client_id)
-        if discipline_id is not None:
-            base = base.where(Template.discipline_id == discipline_id)
-    if lifecycle_state is not None:
-        base = base.where(Project.lifecycle_state == lifecycle_state)
+        # Each filter narrows with IN *within* the visibility scope above —
+        # an id outside the caller's accessible departments simply matches
+        # nothing, so multi-select can't widen what the caller can see.
+        if department_id:
+            base = base.where(Template.department_id.in_(department_id))
+        if client_id:
+            base = base.where(Template.client_id.in_(client_id))
+        if discipline_id:
+            base = base.where(Template.discipline_id.in_(discipline_id))
+    if lifecycle_state:
+        _reject_unknown_lifecycle(lifecycle_state)
+        base = base.where(Project.lifecycle_state.in_(lifecycle_state))
     # Phase 2.6: free-text search across title + project # + client #.
     # Whitespace-only `q` is treated as no filter so a stray space in
     # the search box doesn't yield an empty list.
@@ -542,10 +627,12 @@ def export_projects(
     template_id: uuid.UUID = Query(...),
     format: str = Query(..., pattern="^(csv|xlsx)$"),
     columns: str = Query(...),
-    lifecycle_state: str | None = Query(default=None),
-    department_id: uuid.UUID | None = Query(default=None),
-    client_id: uuid.UUID | None = Query(default=None),
-    discipline_id: uuid.UUID | None = Query(default=None),
+    # Phase 27.3: multi-select filters (repeated params → IN), matching the
+    # list endpoint so an export mirrors the filtered table the user sees.
+    lifecycle_state: list[str] = Query(default=[]),
+    department_id: list[uuid.UUID] = Query(default=[]),
+    client_id: list[uuid.UUID] = Query(default=[]),
+    discipline_id: list[uuid.UUID] = Query(default=[]),
     q: str | None = Query(default=None),
     sort: str | None = Query(default=None),
     sort_direction: str | None = Query(default=None),
@@ -619,22 +706,19 @@ def export_projects(
         if direct:
             clauses.append(Project.id.in_(direct))
         base = base.where(or_(*clauses))
-    if (
-        department_id is not None
-        or client_id is not None
-        or discipline_id is not None
-    ):
+    if department_id or client_id or discipline_id:
         if not template_joined:
             base = base.join(Template, Project.template_id == Template.id)
             template_joined = True
-        if department_id is not None:
-            base = base.where(Template.department_id == department_id)
-        if client_id is not None:
-            base = base.where(Template.client_id == client_id)
-        if discipline_id is not None:
-            base = base.where(Template.discipline_id == discipline_id)
-    if lifecycle_state is not None:
-        base = base.where(Project.lifecycle_state == lifecycle_state)
+        if department_id:
+            base = base.where(Template.department_id.in_(department_id))
+        if client_id:
+            base = base.where(Template.client_id.in_(client_id))
+        if discipline_id:
+            base = base.where(Template.discipline_id.in_(discipline_id))
+    if lifecycle_state:
+        _reject_unknown_lifecycle(lifecycle_state)
+        base = base.where(Project.lifecycle_state.in_(lifecycle_state))
     if q is not None:
         needle = q.strip()
         if needle:

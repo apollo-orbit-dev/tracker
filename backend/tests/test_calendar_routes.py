@@ -100,3 +100,37 @@ def test_soft_deleted_assignment_excluded(env, client_as, db_session):
     assert r.status_code == 200, r.text
     kinds = {(i["type"], i["id"]) for i in r.json()["items"]}
     assert ("assignment", str(env["a"].id)) not in kinds
+
+
+def test_multi_select_department_filter_narrows(env, client_as, db_session):
+    # Phase 26.2: grant the editor access to both departments, then filter by
+    # one / both via repeated department_id params (IN filter).
+    db_session.add(UserRole(user_id=env["editor"].id, role_id="project_editor",
+                            department_id=env["d2"].id))
+    db_session.flush()
+    c = client_as(env["editor"])
+    d, d2 = env["d"].id, env["d2"].id
+    m, m_out = str(env["m"].id), str(env["m_out"].id)
+    base = "/api/calendar/items?start=2026-07-01&end=2026-07-31&types=milestone"
+
+    def ms_ids(url):
+        r = c.get(url)
+        assert r.status_code == 200, r.text
+        return {i["id"] for i in r.json()["items"]}
+
+    assert ms_ids(base) == {m, m_out}                                 # no filter → both depts
+    assert ms_ids(f"{base}&department_id={d}") == {m}                 # single
+    assert ms_ids(f"{base}&department_id={d2}") == {m_out}            # single (other)
+    assert ms_ids(f"{base}&department_id={d}&department_id={d2}") == {m, m_out}  # multi-select
+
+
+def test_filter_cannot_widen_beyond_accessible_scope(env, client_as):
+    # The editor only has dept d; filtering to d2 (inaccessible) yields nothing,
+    # never the d2 milestone — the DCD filter can only narrow within scope.
+    c = client_as(env["editor"])
+    base = "/api/calendar/items?start=2026-07-01&end=2026-07-31&types=milestone"
+    r = c.get(f"{base}&department_id={env['d2'].id}")
+    assert r.status_code == 200, r.text
+    ids = {i["id"] for i in r.json()["items"]}
+    assert str(env["m_out"].id) not in ids
+    assert str(env["m"].id) not in ids

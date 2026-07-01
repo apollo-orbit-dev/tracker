@@ -14,19 +14,22 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from backend.app.auth.dependencies import get_current_user
 from backend.app.auth.roles import PROJECT_EDITOR
 from backend.app.auth.scope import (
+    accessible_department_ids,
     assert_can_edit_project,
     assert_can_view_project,
+    directly_granted_project_ids,
     has_role_in_dept,
 )
 from backend.app.db.models import (
     Assignment,
     Project,
+    Template,
     User,
 )
 from backend.app.db.session import get_db
@@ -45,9 +48,18 @@ from backend.app.schemas.assignments import (
     AssignmentUpdate,
     EligibleUser,
     EligibleUsersResponse,
+    MyAssignmentListResponse,
+    MyAssignmentOut,
 )
 
 router = APIRouter(prefix="/api/projects", tags=["assignments"])
+
+# Personal (cross-project) assignment feed. Separate prefix from the
+# project-nested CRUD router above.
+me_router = APIRouter(prefix="/api/me", tags=["assignments"])
+
+# Statuses that count as "still owed" — excludes done + cancelled.
+_OPEN_ASSIGNMENT_STATUSES = ("open", "in_progress")
 
 
 def _fetch_project(db: Session, pid: uuid.UUID) -> Project:
@@ -175,6 +187,59 @@ def list_assignments(
     return AssignmentListResponse(
         items=[_to_out(r) for r in rows], total=len(rows)
     )
+
+
+@me_router.get("/assignments", response_model=MyAssignmentListResponse)
+def list_my_assignments(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> MyAssignmentListResponse:
+    """The caller's still-open assignments (open + in_progress) across every
+    project they can currently view, soonest due first (NULLS LAST).
+
+    Project visibility is re-checked here — assignees are restricted to
+    project-viewers at create time, but access can be revoked later (open
+    item 41); intersecting with current visibility means a revoked-access
+    assignment never leaks into the widget.
+    """
+    allowed = accessible_department_ids(user)
+    direct = directly_granted_project_ids(user)
+    q = (
+        select(Assignment, Project.title)
+        .join(Project, Assignment.project_id == Project.id)
+        .join(Template, Project.template_id == Template.id)
+        .options(
+            selectinload(Assignment.assignee),
+            selectinload(Assignment.milestone),
+        )
+        .where(
+            Assignment.assignee_user_id == user.id,
+            Assignment.deleted_at.is_(None),
+            Assignment.status.in_(_OPEN_ASSIGNMENT_STATUSES),
+            Project.deleted_at.is_(None),
+        )
+    )
+    # allowed is None → org admin/viewer sees every department. Otherwise the
+    # caller sees their dept assignments OR projects directly shared to them.
+    if allowed is not None:
+        clauses = []
+        if allowed:
+            clauses.append(Template.department_id.in_(allowed))
+        if direct:
+            clauses.append(Project.id.in_(direct))
+        if not clauses:
+            return MyAssignmentListResponse(items=[], total=0)
+        q = q.where(or_(*clauses))
+    q = q.order_by(
+        Assignment.due_date.asc().nullslast(),
+        Assignment.created_at.asc(),
+    )
+    rows = db.execute(q).all()
+    items = [
+        MyAssignmentOut(**_to_out(a).model_dump(), project_title=title)
+        for a, title in rows
+    ]
+    return MyAssignmentListResponse(items=items, total=len(items))
 
 
 @router.post(

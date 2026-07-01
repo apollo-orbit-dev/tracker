@@ -128,6 +128,7 @@ def put_view_columns(
             payload.sort_key,
             payload.sort_direction,
             live_custom_field_ids=field_ids,
+            live_milestone_def_ids=milestone_ids,
         )
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=e.reasons)

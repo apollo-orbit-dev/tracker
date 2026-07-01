@@ -30,6 +30,7 @@ export const FIELD_TYPES: FieldTypeMeta[] = [
   { type: "date",       label: "Date",        icon: "Calendar",       desc: "Calendar date" },
   { type: "single_select", label: "Dropdown", icon: "ChevronsUpDown", desc: "Pick from options" },
   { type: "boolean",    label: "Yes / No",    icon: "ToggleRight",    desc: "On / off switch" },
+  { type: "user",       label: "User",        icon: "User",           desc: "Pick a person (e.g. an assignee)" },
 ]
 
 export function fieldTypeMeta(type: string): FieldTypeMeta {

@@ -86,6 +86,21 @@ def test_widget_add_duplicate_409(
     assert r.status_code == 409
 
 
+def test_widget_add_my_assignments(
+    client_as: Callable[[User], TestClient],
+    admin_user: User,
+):
+    # Phase 27.6: the new config-less my_assignments widget is addable.
+    c = client_as(admin_user)
+    did = _did(c)
+    c.get(f"/api/dashboards/{did}/widgets")  # init default set
+    r = c.post(
+        f"/api/dashboards/{did}/widgets", json={"widget_type": "my_assignments"}
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["widget_type"] == "my_assignments"
+
+
 def test_widget_add_unknown_type_422(
     client_as: Callable[[User], TestClient],
     admin_user: User,

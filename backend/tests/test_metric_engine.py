@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from backend.app.db.models import (
     COR,
+    Assignment,
     Client,
     Department,
     Discipline,
@@ -93,6 +94,16 @@ def _cor(db: Session, project_id, number="1", amount=0, status="draft"):
     db.add(c)
     db.flush()
     return c
+
+
+def _assignment(db: Session, project_id, assignee, *, status="open", due=None, desc="task"):
+    a = Assignment(
+        project_id=project_id, assignee_user_id=assignee.id,
+        description=desc, status=status, due_date=due,
+    )
+    db.add(a)
+    db.flush()
+    return a
 
 
 def test_eval_requires_auth(client: TestClient):
@@ -676,6 +687,97 @@ def test_grouped_cor_status_builtin(client_as, admin_user, db_session):
     rows = evaluate_grouped(db_session, admin_user, m, "status")
     by_label = {r.label: int(r.value) for r in rows}
     assert by_label == {"submitted": 350, "approved": 999}
+
+
+# Phase 27.8 — assignment entity.
+
+
+def test_assignment_count_with_status_condition(client_as, admin_user, db_session):
+    _, t = _taxonomy(db_session, "ASG1")
+    p = _project(db_session, t.id, admin_user)
+    _assignment(db_session, p.id, admin_user, status="open")
+    _assignment(db_session, p.id, admin_user, status="open")
+    _assignment(db_session, p.id, admin_user, status="done")
+    db_session.commit()
+    r = client_as(admin_user).post(
+        "/api/metrics/eval",
+        json={
+            "entity": "assignment",
+            "aggregation": "count",
+            "conditions": {
+                "combinator": "and",
+                "items": [{"field": "status", "op": "in", "value": ["open", "in_progress"]}],
+            },
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert Decimal(r.json()["value"]) == 2
+
+
+def test_assignment_overdue_count_by_due_date(client_as, admin_user, db_session):
+    _, t = _taxonomy(db_session, "ASG2")
+    p = _project(db_session, t.id, admin_user)
+    past = date.today() - timedelta(days=5)
+    future = date.today() + timedelta(days=5)
+    _assignment(db_session, p.id, admin_user, due=past)
+    _assignment(db_session, p.id, admin_user, due=future)
+    _assignment(db_session, p.id, admin_user, due=None)
+    db_session.commit()
+    r = client_as(admin_user).post(
+        "/api/metrics/eval",
+        json={
+            "entity": "assignment",
+            "aggregation": "count",
+            "conditions": {
+                "combinator": "and",
+                "items": [{"field": "due_date", "op": "on_or_before_today"}],
+            },
+        },
+    )
+    assert Decimal(r.json()["value"]) == 1  # only the past-due one
+
+
+def test_assignment_grouped_by_status(client_as, admin_user, db_session):
+    from backend.app.schemas.views import MetricDefinition
+    from backend.app.services.metric_engine import evaluate_grouped
+
+    _, t = _taxonomy(db_session, "ASG3")
+    p = _project(db_session, t.id, admin_user)
+    _assignment(db_session, p.id, admin_user, status="open")
+    _assignment(db_session, p.id, admin_user, status="open")
+    _assignment(db_session, p.id, admin_user, status="in_progress")
+    db_session.commit()
+    m = MetricDefinition.model_validate(
+        {"entity": "assignment", "aggregation": "count"}
+    )
+    rows = evaluate_grouped(db_session, admin_user, m, "status")
+    by_label = {r.label: int(r.value) for r in rows}
+    assert by_label == {"open": 2, "in_progress": 1}
+
+
+def test_assignment_rejects_sum(client_as, admin_user, db_session):
+    # Assignments are count-only — sum (needs a numeric target) is rejected.
+    _, t = _taxonomy(db_session, "ASG4")
+    r = client_as(admin_user).post(
+        "/api/metrics/eval",
+        json={"entity": "assignment", "aggregation": "sum", "target_field": "due_date"},
+    )
+    assert r.status_code == 422
+
+
+def test_assignment_metric_dept_scoped(client_as, viewer_user, admin_user, db_session):
+    # An assignment under a project in a dept the caller can't see is not
+    # counted — assignment metrics are dept-scoped through their project.
+    _, t = _taxonomy(db_session, "ASG5")
+    p = _project(db_session, t.id, admin_user)
+    _assignment(db_session, p.id, admin_user, status="open")
+    db_session.commit()
+    r = client_as(viewer_user).post(
+        "/api/metrics/eval",
+        json={"entity": "assignment", "aggregation": "count"},
+    )
+    assert r.status_code == 200
+    assert Decimal(r.json()["value"]) == 0
 
 
 def test_date_planned_actual_subfields(client_as, admin_user, db_session):

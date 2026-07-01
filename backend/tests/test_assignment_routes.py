@@ -209,6 +209,82 @@ def test_soft_deleted_user_not_eligible(env, client_as, db_session):
     assert r.status_code == 422
 
 
+# ---- Phase 27.6: /api/me/assignments (my-assignments widget feed) -------
+
+
+def test_my_assignments_open_only_ordered_by_due_date(env, client_as):
+    proj = env["proj"]
+    c = client_as(env["editor"])
+
+    def mk(due, status):
+        body = _body(env, status=status)
+        if due is not None:
+            body["due_date"] = due
+        return c.post(f"/api/projects/{proj.id}/assignments", json=body)
+
+    assert mk("2026-03-01", "open").status_code == 201
+    assert mk("2026-01-15", "open").status_code == 201
+    assert mk(None, "in_progress").status_code == 201
+    assert mk("2026-02-01", "done").status_code == 201  # excluded (complete)
+    # An assignment for a *different* assignee must not appear in editor's feed.
+    assert c.post(
+        f"/api/projects/{proj.id}/assignments",
+        json=_body(env, assignee_user_id=str(env["viewer"].id)),
+    ).status_code == 201
+
+    body = c.get("/api/me/assignments").json()
+    assert body["total"] == 3, body
+    dues = [it["due_date"] for it in body["items"]]
+    # Soonest first; the no-due (in_progress) row sorts last.
+    assert dues == ["2026-01-15", "2026-03-01", None], dues
+    # done is excluded; every row carries the project title.
+    assert all(it["status"] in ("open", "in_progress") for it in body["items"])
+    assert all(it["project_title"] == "x" for it in body["items"])
+
+
+def test_my_assignments_only_returns_own(env, client_as):
+    proj = env["proj"]
+    c = client_as(env["editor"])
+    # editor assigns one to the viewer and one to themselves.
+    c.post(
+        f"/api/projects/{proj.id}/assignments",
+        json=_body(env, assignee_user_id=str(env["viewer"].id)),
+    )
+    c.post(f"/api/projects/{proj.id}/assignments", json=_body(env))
+
+    editor_feed = c.get("/api/me/assignments").json()
+    assert editor_feed["total"] == 1
+    viewer_feed = client_as(env["viewer"]).get("/api/me/assignments").json()
+    assert viewer_feed["total"] == 1
+    # The viewer's one row is the one assigned to them.
+    assert viewer_feed["items"][0]["assignee_email"] == "viewer@x.com"
+
+
+def test_my_assignments_excludes_revoked_visibility(env, client_as, db_session):
+    """A direct-grant assignee who later loses the share no longer sees the
+    assignment in their feed (open item 41 — no leak)."""
+    proj = env["proj"]
+    shared = env["shared"]  # dept beta, direct-granted on proj (alpha)
+    # Assign to the shared outsider while they can view the project.
+    assert client_as(env["editor"]).post(
+        f"/api/projects/{proj.id}/assignments",
+        json=_body(env, assignee_user_id=str(shared.id)),
+    ).status_code == 201
+    assert client_as(shared).get("/api/me/assignments").json()["total"] == 1
+
+    # Revoke the direct share → the assignment is now invisible to them.
+    from backend.app.db.models import ProjectRoleAssignment
+
+    db_session.query(ProjectRoleAssignment).filter_by(
+        user_id=shared.id, project_id=proj.id
+    ).delete()
+    db_session.flush()
+    # Drop cached relationship collections so the next request reloads the
+    # (now-revoked) project_role_assignments from the DB.
+    db_session.expire_all()
+    assert client_as(shared).get("/api/me/assignments").json()["total"] == 0
+
+
 # ---- Phase 23.5: assignee status-only self-service ----------------------
 
 

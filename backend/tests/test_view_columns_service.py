@@ -142,10 +142,26 @@ def test_validate_sort_rejects_unknown_custom_field() -> None:
         )
 
 
+def test_validate_sort_accepts_live_milestone_key() -> None:
+    # Phase 27.4: a milestone key for a live def is accepted.
+    mid = uuid.uuid4()
+    validate_sort(
+        f"milestone:{mid}:date", "asc", live_milestone_def_ids={mid}
+    )
+
+
+def test_validate_sort_rejects_unknown_milestone() -> None:
+    # Milestone def not in the template's live set → rejected.
+    with pytest.raises(ValidationError, match="milestone not in this template"):
+        validate_sort(
+            f"milestone:{uuid.uuid4()}:date", "asc", live_milestone_def_ids=set()
+        )
+
+
 def test_validate_sort_rejects_non_sortable_key() -> None:
-    # A milestone key is neither a built-in nor a custom_field → rejected.
-    with pytest.raises(ValidationError, match="must be a built-in or custom_field"):
-        validate_sort(f"milestone:{uuid.uuid4()}:date", "asc")
+    # A non-column string is neither built-in, custom_field, nor milestone.
+    with pytest.raises(ValidationError, match="must be a built-in"):
+        validate_sort("bogus:thing", "asc")
 
 
 def test_validate_sort_rejects_unpaired() -> None:

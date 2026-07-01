@@ -223,14 +223,15 @@ describe("ProjectDetailPage", () => {
       expect(screen.getByText("Project Description")).toBeInTheDocument()
     })
     expect(screen.getByText("Phase")).toBeInTheDocument()
-    // Milestones row
-    expect(screen.getByText("IFC Submittal")).toBeInTheDocument()
+    // Milestones row. Phase 25.2: the name also appears in the timeline
+    // card, so it's no longer unique — assert presence, not uniqueness.
+    expect(screen.getAllByText("IFC Submittal").length).toBeGreaterThan(0)
     // Phase 4.3: the Lifecycle card is gone; status + Change state dropdown
     // live in the hero instead. Status badge is sufficient evidence.
     expect(screen.getByText("Draft")).toBeInTheDocument()
   })
 
-  it("disables inputs for viewer", async () => {
+  it("renders read-only (no edit controls) for viewer", async () => {
     stubFetchByRoute([
       {
         match: (u) => u.endsWith("/api/auth/me"),
@@ -252,8 +253,11 @@ describe("ProjectDetailPage", () => {
         screen.getByRole("heading", { level: 1, name: "Demo project" }),
       ).toBeInTheDocument()
     })
-    const plannedInput = screen.getByLabelText(/Planned date for IFC Submittal/i)
-    expect(plannedInput).toBeDisabled()
+    // Phase 25.4: viewers see milestone dates as plain text, not a
+    // (disabled) date input — no editable planned-date control exists.
+    expect(
+      screen.queryByLabelText(/Planned date for IFC Submittal/i),
+    ).not.toBeInTheDocument()
     // No Save changes button (no editor)
     expect(
       screen.queryByRole("button", { name: /save changes/i }),
@@ -416,7 +420,8 @@ describe("ProjectDetailPage", () => {
     ])
     renderWithProviders(<App />, { route: ROUTE })
     await waitFor(() => {
-      expect(screen.getByText("IFC Submittal")).toBeInTheDocument()
+      // 25.2: name appears in both the timeline and the table.
+      expect(screen.getAllByText("IFC Submittal").length).toBeGreaterThan(0)
     })
     expect(
       screen.queryByRole("button", { name: /new milestone/i }),
@@ -444,8 +449,10 @@ describe("ProjectDetailPage", () => {
     ])
     renderWithProviders(<App />, { route: ROUTE })
     await waitFor(() => {
-      expect(screen.getByText("Ad-hoc thing")).toBeInTheDocument()
+      // 25.2: name appears in both the timeline and the table.
+      expect(screen.getAllByText("Ad-hoc thing").length).toBeGreaterThan(0)
     })
+    // The ad-hoc badge itself is table-only, so it stays unique.
     expect(screen.getByText(/^ad-hoc$/i)).toBeInTheDocument()
   })
 

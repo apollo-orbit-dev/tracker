@@ -29,6 +29,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { DENSITY_CELL_STYLE, DENSITY_ROW_STYLE } from "@/lib/density"
+import { MultiSelectFilter } from "@/components/MultiSelectFilter"
 import { useDebouncedValue } from "@/hooks/useDebouncedValue"
 import { useProjectList } from "@/api/projects"
 import {
@@ -54,7 +56,6 @@ import {
 } from "@/lib/view_columns"
 import { LIFECYCLE_STATES, lifecycleLabel } from "@/lib/lifecycle"
 
-const ALL = "__all__"
 const PAGE_SIZE = 15
 
 // renderCell / renderHeaderLabel moved to components/projects/
@@ -117,7 +118,8 @@ export function ProjectsViewPage() {
     return prefs.data
   }, [prefs.data])
 
-  const [lifecycle, setLifecycle] = useState<string>(ALL)
+  // Phase 27.3: multi-select status filter; empty array = all states.
+  const [lifecycle, setLifecycle] = useState<string[]>([])
   const [search, setSearch] = useState("")
   const debouncedSearch = useDebouncedValue(search, 250)
   const [page, setPage] = useState(1)
@@ -143,7 +145,7 @@ export function ProjectsViewPage() {
     templateId
       ? {
           template_id: templateId,
-          lifecycle_state: lifecycle === ALL ? undefined : lifecycle,
+          lifecycle_state: lifecycle,
           q: debouncedSearch || undefined,
           page,
           page_size: PAGE_SIZE,
@@ -287,19 +289,17 @@ export function ProjectsViewPage() {
                 className="w-[260px] pl-7"
               />
             </div>
-            <Select value={lifecycle} onValueChange={setLifecycle}>
-              <SelectTrigger className="w-[170px]" aria-label="Lifecycle filter">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ALL}>All states</SelectItem>
-                {LIFECYCLE_STATES.map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {lifecycleLabel(s)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <MultiSelectFilter
+              label="Lifecycle filter"
+              allLabel="All states"
+              className="w-[170px]"
+              options={LIFECYCLE_STATES.map((s) => ({
+                id: s,
+                name: lifecycleLabel(s),
+              }))}
+              selected={lifecycle}
+              onChange={setLifecycle}
+            />
           </div>
         </div>
 
@@ -353,7 +353,7 @@ export function ProjectsViewPage() {
                     colSpan={Math.max(1, effectivePrefs.columns.length)}
                     className="text-center text-sm text-muted-foreground"
                   >
-                    {debouncedSearch || lifecycle !== ALL
+                    {debouncedSearch || lifecycle.length > 0
                       ? "No projects match your filters."
                       : "No projects yet in this template."}
                   </TableCell>
@@ -364,10 +364,11 @@ export function ProjectsViewPage() {
                     key={p.id}
                     data-state={selectedId === p.id ? "selected" : undefined}
                     className="cursor-pointer odd:bg-muted/30"
+                    style={DENSITY_ROW_STYLE}
                     onClick={() => setSelectedId(p.id)}
                   >
                     {effectivePrefs.columns.map((k) => (
-                      <TableCell key={k}>
+                      <TableCell key={k} style={DENSITY_CELL_STYLE}>
                         {renderCell(k, p, refLabels, customFieldTypes)}
                       </TableCell>
                     ))}
@@ -422,7 +423,7 @@ export function ProjectsViewPage() {
           fieldDefs={fieldDefs}
           milestoneDefs={milestoneDefs}
           filters={{
-            lifecycle_state: lifecycle === ALL ? undefined : lifecycle,
+            lifecycle_state: lifecycle,
             q: debouncedSearch || undefined,
             sort: sortApiParam,
             sort_direction: effectivePrefs.sort_direction ?? undefined,

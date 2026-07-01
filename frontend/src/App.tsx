@@ -69,7 +69,7 @@ function App() {
           <Route
             path="clients"
             element={
-              <AdminRoute>
+              <AdminRoute requireRole="department_manager">
                 <TaxonomyManagePage
                   path="clients"
                   title="Clients"
@@ -82,7 +82,7 @@ function App() {
           <Route
             path="disciplines"
             element={
-              <AdminRoute>
+              <AdminRoute requireRole="department_manager">
                 <TaxonomyManagePage
                   path="disciplines"
                   title="Disciplines"

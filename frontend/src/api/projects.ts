@@ -136,17 +136,22 @@ async function apiCall<T>(
   return body as T
 }
 
+// Phase 27.3: filters that became multi-select accept either a single value
+// (existing single-select callers, e.g. the table block) or an array; each
+// element is emitted as a repeated query param the backend collects with IN.
+export type MultiFilter = string | string[]
+
 export type ProjectListFilters = {
-  lifecycle_state?: string
+  lifecycle_state?: MultiFilter
   q?: string
   page?: number  // 1-based
   page_size?: number
   template_id?: string
   // Phase 4.8.14: dept / client / discipline filters narrow via the
   // project's template, served by the same /api/projects endpoint.
-  department_id?: string
-  client_id?: string
-  discipline_id?: string
+  department_id?: MultiFilter
+  client_id?: MultiFilter
+  discipline_id?: MultiFilter
   sort?: string
   sort_direction?: "asc" | "desc"
   expand_refs?: boolean
@@ -160,6 +165,19 @@ export type ProjectListFilters = {
 const listKey = (filters: ProjectListFilters) =>
   ["projects", filters] as const
 
+// Append a single-or-array filter as repeated query params, skipping
+// empty values. `?department_id=a&department_id=b` → backend list[UUID].
+function appendMulti(
+  params: URLSearchParams,
+  key: string,
+  value: MultiFilter | undefined,
+): void {
+  if (value === undefined) return
+  for (const v of Array.isArray(value) ? value : [value]) {
+    if (v) params.append(key, v)
+  }
+}
+
 export function useProjectList(filters: ProjectListFilters = {}) {
   return useQuery<ProjectListResponse, ApiError>({
     queryKey: listKey(filters),
@@ -171,24 +189,16 @@ export function useProjectList(filters: ProjectListFilters = {}) {
         limit: String(pageSize),
         offset: String(offset),
       })
-      if (filters.lifecycle_state) {
-        params.set("lifecycle_state", filters.lifecycle_state)
-      }
+      appendMulti(params, "lifecycle_state", filters.lifecycle_state)
       if (filters.q && filters.q.trim()) {
         params.set("q", filters.q.trim())
       }
       if (filters.template_id) {
         params.set("template_id", filters.template_id)
       }
-      if (filters.department_id) {
-        params.set("department_id", filters.department_id)
-      }
-      if (filters.client_id) {
-        params.set("client_id", filters.client_id)
-      }
-      if (filters.discipline_id) {
-        params.set("discipline_id", filters.discipline_id)
-      }
+      appendMulti(params, "department_id", filters.department_id)
+      appendMulti(params, "client_id", filters.client_id)
+      appendMulti(params, "discipline_id", filters.discipline_id)
       if (filters.sort) {
         params.set("sort", filters.sort)
         params.set("sort_direction", filters.sort_direction ?? "desc")
@@ -309,13 +319,13 @@ export type ProjectExportRequest = {
   templateId: string
   format: ExportFormat
   columns: string[]
-  lifecycle_state?: string
+  lifecycle_state?: MultiFilter
   q?: string
   sort?: string
   sort_direction?: "asc" | "desc"
-  department_id?: string
-  client_id?: string
-  discipline_id?: string
+  department_id?: MultiFilter
+  client_id?: MultiFilter
+  discipline_id?: MultiFilter
 }
 
 function filenameFromHeader(
@@ -335,15 +345,15 @@ export async function exportProjects(
     format: req.format,
     columns: req.columns.join(","),
   })
-  if (req.lifecycle_state) params.set("lifecycle_state", req.lifecycle_state)
+  appendMulti(params, "lifecycle_state", req.lifecycle_state)
   if (req.q && req.q.trim()) params.set("q", req.q.trim())
   if (req.sort) {
     params.set("sort", req.sort)
     params.set("sort_direction", req.sort_direction ?? "desc")
   }
-  if (req.department_id) params.set("department_id", req.department_id)
-  if (req.client_id) params.set("client_id", req.client_id)
-  if (req.discipline_id) params.set("discipline_id", req.discipline_id)
+  appendMulti(params, "department_id", req.department_id)
+  appendMulti(params, "client_id", req.client_id)
+  appendMulti(params, "discipline_id", req.discipline_id)
   const res = await fetch(`/api/projects/export?${params.toString()}`, {
     method: "GET",
     credentials: "include",

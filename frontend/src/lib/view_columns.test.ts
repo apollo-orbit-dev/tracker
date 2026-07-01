@@ -16,19 +16,22 @@ describe("sortParamForKey", () => {
     expect(sortParamForKey("builtin:title")).toBe("title")
     expect(sortParamForKey("builtin:project_number")).toBe("project_number")
   })
-  it("passes custom-field keys through unchanged", () => {
+  it("passes custom-field and milestone keys through unchanged", () => {
     expect(sortParamForKey("custom_field:abc")).toBe("custom_field:abc")
+    expect(sortParamForKey("milestone:abc:date")).toBe("milestone:abc:date")
+    expect(sortParamForKey("milestone:abc:planned")).toBe("milestone:abc:planned")
   })
-  it("returns undefined for non-sortable keys", () => {
-    expect(sortParamForKey("milestone:abc:date")).toBeUndefined()
+  it("returns undefined for unknown keys", () => {
+    expect(sortParamForKey("bogus:key")).toBeUndefined()
   })
 })
 
 describe("isSortable", () => {
-  it("is true for built-ins and custom fields, false for milestones", () => {
+  it("is true for built-ins, custom fields, and milestone columns", () => {
     expect(isSortable("builtin:title")).toBe(true)
     expect(isSortable("custom_field:abc")).toBe(true)
-    expect(isSortable("milestone:abc:planned")).toBe(false)
+    expect(isSortable("milestone:abc:planned")).toBe(true)
+    expect(isSortable("milestone:abc:date")).toBe(true)
   })
 })
 

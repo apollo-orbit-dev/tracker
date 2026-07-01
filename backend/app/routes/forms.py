@@ -21,6 +21,7 @@ from backend.app.db.models import (
     Project,
     Template,
     User,
+    UserRole,
 )
 from backend.app.services.cor_create import CORNumberConflict
 from backend.app.db.session import get_db
@@ -30,6 +31,7 @@ from backend.app.schemas.forms import (
     MAX_FIELDS_PER_FORM, RejectRequest,
     SubmissionCreate, SubmissionListItem, SubmissionListResponse, SubmissionOut,
 )
+from backend.app.schemas.roster import UserPickerItem, UserPickerResponse
 from backend.app.services.audit import diff, record_audit
 
 router = APIRouter(prefix="/api/forms", tags=["forms"])
@@ -199,6 +201,33 @@ def create_form(
 def get_form(form_id: uuid.UUID, db: Session = Depends(get_db),
              user: User = Depends(get_current_user)) -> FormOut:
     return _form_out(_fetch_form_for_read(db, user, form_id))
+
+
+@router.get("/{form_id}/user-options", response_model=UserPickerResponse)
+def form_user_options(
+    form_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> UserPickerResponse:
+    """Users in the form's department — populates a user-picker field at fill-out.
+
+    Gated by form read-access (viewer+), so any submitter who can fill the form
+    can resolve its user-picker fields. Scoped to the form's department, so
+    submitters only see colleagues there (Phase 27.9). The picked assignee's
+    project-view eligibility is re-checked at push (defence in depth)."""
+    form = _fetch_form_for_read(db, user, form_id)
+    rows = db.execute(
+        select(User)
+        .join(UserRole, UserRole.user_id == User.id)
+        .where(
+            UserRole.department_id == form.department_id,
+            User.deleted_at.is_(None),
+        )
+        .distinct()
+        .order_by(User.display_name.asc())
+    ).scalars().all()
+    items = [UserPickerItem.model_validate(u) for u in rows]
+    return UserPickerResponse(items=items, total=len(items))
 
 
 @router.patch("/{form_id}", response_model=FormOut)

@@ -203,13 +203,6 @@ export function BreakdownConfigSection({
 
   return (
     <>
-      <GroupBySelect
-        groupBy={groupBy}
-        groupByValid={groupByValid}
-        groupOpts={groupOpts}
-        onChange={setGroupBy}
-      />
-
       <div className="space-y-2">
         <Label>Columns (1–4)</Label>
         {cascadeNotice && (
@@ -296,6 +289,16 @@ export function BreakdownConfigSection({
           each keeps its own conditions and aggregation.
         </p>
       </div>
+
+      {/* Group-by sits below the columns (the first column's metric builder
+          carries the Entity select): the group-by catalog depends on that
+          entity, so the entity is picked first, top-down. */}
+      <GroupBySelect
+        groupBy={groupBy}
+        groupByValid={groupByValid}
+        groupOpts={groupOpts}
+        onChange={setGroupBy}
+      />
     </>
   )
 }

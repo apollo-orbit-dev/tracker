@@ -124,28 +124,30 @@ def _mapped_values(form, final_values: dict) -> dict:
 
 
 def _write_assignment(db, user, submission, form, *, final_values: dict, ctx: dict):
-    """Assignment target writer (Phase 20.2).
+    """Assignment target writer (Phase 20.2, assignee mapping Phase 27.9).
 
-    Maps ``description`` (required) + ``due_date`` (optional) from form fields;
-    the ``assignee`` is supplied by the reviewer at approval (``ctx`` — Pattern
-    B), constrained to users who can view the project. New assignments start
-    ``open``. Caller owns the transaction.
+    Maps ``description`` (required) + ``due_date`` (optional) + ``assignee``
+    (a user-picker field) from form fields; the reviewer can override the
+    assignee at approval (``ctx.assignee_user_id`` wins when set). The assignee
+    is constrained to users who can view the project (enforced by
+    ``create_assignment_record``). New assignments start ``open``. Caller owns
+    the transaction.
 
-    ``ctx`` keys: ``target_project_id`` (required), ``assignee_user_id`` (required).
+    ``ctx`` keys: ``target_project_id`` (required), ``assignee_user_id``
+    (optional override).
 
     Raises HTTPException(422) for missing project / assignee / description or an
     over-length description; (404) for a missing project; (403) via
     ``assert_can_edit_project``; (422) for an ineligible assignee (from the
     assignment-create service).
     """
+    import uuid as _uuid
+
     from backend.app.services.assignment_create import create_assignment_record
 
     target_project_id = ctx.get("target_project_id")
-    assignee_user_id = ctx.get("assignee_user_id")
     if target_project_id is None:
         raise HTTPException(status_code=422, detail="A target project is required.")
-    if assignee_user_id is None:
-        raise HTTPException(status_code=422, detail="An assignee is required.")
 
     project = db.get(Project, target_project_id)
     if project is None or project.deleted_at is not None:
@@ -153,6 +155,20 @@ def _write_assignment(db, user, submission, form, *, final_values: dict, ctx: di
     assert_can_edit_project(user, project)
 
     mapped = _mapped_values(form, final_values)
+
+    # Assignee: reviewer override (ctx) takes precedence over the submitter's
+    # mapped user-picker field. Coerce a string id to UUID; bad/empty → 422.
+    raw_assignee = ctx.get("assignee_user_id") or mapped.get("assignee")
+    if not raw_assignee:
+        raise HTTPException(status_code=422, detail="An assignee is required.")
+    if isinstance(raw_assignee, _uuid.UUID):
+        assignee_user_id = raw_assignee
+    else:
+        try:
+            assignee_user_id = _uuid.UUID(str(raw_assignee))
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid assignee.")
+
     description = (mapped.get("description") or "").strip()
     if not description:
         raise HTTPException(status_code=422, detail="An assignment description is required.")

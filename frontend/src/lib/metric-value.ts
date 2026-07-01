@@ -34,8 +34,10 @@ function formatDateLocal(iso: string): string {
 /**
  * Format a `custom_field_values[fd.id]` payload for display.
  *
- * Unknown types fall through to a coerced-string render. Empty / null
- * values across every type render as the em-dash placeholder "—".
+ * Used by the projects-list PeekPanel metric grid, the project-detail
+ * right-sidebar Metrics block, and (Phase 25.3) the project-detail custom-
+ * fields panel's read-only display. Every type renders to a human string;
+ * empty / null values render as the em-dash placeholder "—".
  */
 export function formatMetricValue(value: unknown, fieldType: string): string {
   if (isEmpty(value)) return "—"
@@ -47,7 +49,8 @@ export function formatMetricValue(value: unknown, fieldType: string): string {
     }
     case "integer":
     case "decimal":
-    case "auto_number": {
+    case "auto_number":
+    case "duration": {
       const n = typeof value === "number" ? value : parseFloat(String(value))
       return isNaN(n) ? String(value) : n.toLocaleString()
     }
@@ -56,27 +59,55 @@ export function formatMetricValue(value: unknown, fieldType: string): string {
       return isNaN(n) ? String(value) : `${n}%`
     }
     case "date":
-    case "date_planned_actual":
       return formatDateLocal(String(value))
+    case "date_planned_actual": {
+      const v = value as { planned?: string | null; actual?: string | null }
+      const parts: string[] = []
+      if (v?.planned) parts.push(`Planned ${formatDateLocal(v.planned)}`)
+      if (v?.actual) parts.push(`Actual ${formatDateLocal(v.actual)}`)
+      return parts.length ? parts.join(" · ") : "—"
+    }
+    case "date_range": {
+      const v = value as { start?: string | null; end?: string | null }
+      if (!v?.start && !v?.end) return "—"
+      return `${v.start ? formatDateLocal(v.start) : "…"} – ${
+        v.end ? formatDateLocal(v.end) : "…"
+      }`
+    }
     case "boolean":
       return value === true || value === "true" ? "Yes" : "No"
+    case "boolean_conditional_date": {
+      const v = value as { value?: boolean; date?: string | null }
+      if (!v?.value) return "No"
+      return v.date ? `Yes · ${formatDateLocal(v.date)}` : "Yes"
+    }
+    case "boolean_conditional_text": {
+      const v = value as { value?: boolean; text?: string | null }
+      if (!v?.value) return "No"
+      return v.text ? `Yes · ${v.text}` : "Yes"
+    }
     case "short_text":
     case "long_text":
     case "url":
     case "email":
     case "phone":
-      return String(value)
     case "single_select":
       return String(value)
     case "multi_select":
       return Array.isArray(value) ? value.join(", ") : String(value)
     default:
-      // user_picker_*, contact_picker, *_reference, date_range, duration,
-      // boolean_conditional_* — fall back to a coerced string render.
+      // user_picker_*, contact_picker, *_reference — coerced-string render
+      // (UUIDs until proper name-resolving pickers ship).
       return typeof value === "string"
         ? value
         : Array.isArray(value)
           ? value.join(", ")
           : JSON.stringify(value)
   }
+}
+
+/** True when a custom-field value should render as the "—" / "Not set"
+ *  placeholder. Exposed so the inline editor can branch on emptiness. */
+export function isEmptyFieldValue(value: unknown): boolean {
+  return isEmpty(value)
 }

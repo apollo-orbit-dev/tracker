@@ -22,7 +22,7 @@ def _seed_dept_and_user(db_session):
 def test_form_constants_are_curated():
     assert FORM_FIELD_TYPES == {
         "short_text", "long_text", "integer", "decimal",
-        "currency", "date", "single_select", "boolean",
+        "currency", "date", "single_select", "boolean", "user",
     }
     assert FORM_TARGET_ENTITIES == {"cor", "assignment", "milestone", "event", "intake"}
     assert FORM_STATUSES == {"draft", "active", "archived"}

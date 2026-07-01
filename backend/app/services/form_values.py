@@ -19,6 +19,7 @@ Design decisions:
 
 from __future__ import annotations
 
+import uuid
 from datetime import date as _date
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -114,6 +115,17 @@ def _validate_one(field_type: str, options: dict | None, value: Any) -> str | No
     if field_type == "boolean":
         if not isinstance(value, bool):
             return "expected boolean (true/false)"
+        return None
+
+    if field_type == "user":
+        # A user-picker stores the chosen user's id (Phase 27.9). Project-view
+        # eligibility for an assignee is re-checked at push, not here.
+        if not isinstance(value, str):
+            return "expected user id string"
+        try:
+            uuid.UUID(value)
+        except ValueError:
+            return "expected a valid user id"
         return None
 
     return f"unknown field type: {field_type}"

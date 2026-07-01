@@ -210,6 +210,44 @@ def test_put_accepts_live_custom_field_sort_key(
     assert r.json()["sort_key"] == f"custom_field:{fd.id}"
 
 
+def test_put_accepts_live_milestone_sort_key(
+    db_session, client_as, admin_user
+):
+    # Phase 27.4: sorting by a live milestone date column is allowed.
+    c = client_as(admin_user)
+    t, _fd, md = _make_template_with_one_field_and_one_milestone(db_session)
+    db_session.commit()
+    r = c.put(
+        f"/api/projects/view/{t.id}/columns",
+        json={
+            "columns": [f"milestone:{md.id}:planned"],
+            "sort_key": f"milestone:{md.id}:planned",
+            "sort_direction": "asc",
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["sort_key"] == f"milestone:{md.id}:planned"
+
+
+def test_put_rejects_unknown_milestone_sort_key(
+    db_session, client_as, admin_user
+):
+    import uuid as _uuid
+
+    c = client_as(admin_user)
+    t, _, _ = _make_template_with_one_field_and_one_milestone(db_session)
+    db_session.commit()
+    r = c.put(
+        f"/api/projects/view/{t.id}/columns",
+        json={
+            "columns": [],
+            "sort_key": f"milestone:{_uuid.uuid4()}:planned",
+            "sort_direction": "asc",
+        },
+    )
+    assert r.status_code == 422
+
+
 def test_put_rejects_unknown_custom_field_sort_key(
     db_session, client_as, admin_user
 ):

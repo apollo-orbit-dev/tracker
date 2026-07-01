@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react"
+import { screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -379,85 +379,5 @@ describe("Dashboard", () => {
     expect(tab.getAttribute("aria-selected")).toBe("true")
     expect(tab.className).toContain("border-primary")
     expect(tab.className).toContain("font-semibold")
-  })
-
-  // ---- Phase 4.7.4 Summary/Full toggle ----------------------------------
-
-  it("Summary view hides the widget grid and shows title-only cards", async () => {
-    const user = userEvent.setup()
-    stubFetchByRoute([
-      {
-        match: (u) => u.endsWith("/api/auth/me"),
-        respond: () => jsonResponse(ADMIN_USER),
-      },
-      ...widgetStubs,
-    ])
-    renderWithProviders(<App />, { route: "/" })
-
-    // Full view by default — Customize button visible.
-    await waitFor(() => {
-      expect(
-        screen.getByRole("button", { name: /customize/i }),
-      ).toBeInTheDocument()
-    })
-
-    // Click the Summary tab.
-    await user.click(screen.getByRole("tab", { name: /summary/i }))
-
-    // Customize button hides in Summary mode.
-    expect(
-      screen.queryByRole("button", { name: /customize/i }),
-    ).not.toBeInTheDocument()
-
-    // Widget summary cards render — one per widget, labeled by the
-    // widget's library label (since none of the seeded widgets carry a
-    // custom title).
-    const summary = screen.getByRole("list", { name: /widget summary/i })
-    expect(summary).toBeInTheDocument()
-    // 4 default widgets seeded → 4 list items.
-    const items = within(summary).getAllByRole("listitem")
-    expect(items).toHaveLength(4)
-  })
-
-  it("clicking a Summary card flips back to Full", async () => {
-    const user = userEvent.setup()
-    // Prime localStorage to start in Summary.
-    window.localStorage.setItem(
-      "tracker.dashboardView",
-      JSON.stringify("summary"),
-    )
-    stubFetchByRoute([
-      {
-        match: (u) => u.endsWith("/api/auth/me"),
-        respond: () => jsonResponse(ADMIN_USER),
-      },
-      ...widgetStubs,
-    ])
-    renderWithProviders(<App />, { route: "/" })
-
-    // Wait for the summary list to have at least one card — the widget
-    // query lands a tick after the list element is in the DOM.
-    await waitFor(() => {
-      const list = screen.getByRole("list", { name: /widget summary/i })
-      expect(within(list).getAllByRole("button").length).toBeGreaterThan(0)
-    })
-    // No Customize button while in Summary.
-    expect(
-      screen.queryByRole("button", { name: /customize/i }),
-    ).not.toBeInTheDocument()
-
-    // Click the first summary card (each card is a button inside an li).
-    const summary = screen.getByRole("list", { name: /widget summary/i })
-    const cards = within(summary).getAllByRole("button")
-    await user.click(cards[0])
-
-    // Flipped to Full — Customize button is back.
-    await waitFor(() => {
-      expect(
-        screen.getByRole("button", { name: /customize/i }),
-      ).toBeInTheDocument()
-    })
-
-    window.localStorage.removeItem("tracker.dashboardView")
   })
 })

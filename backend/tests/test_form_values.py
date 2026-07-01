@@ -60,6 +60,19 @@ def test_valid_values_pass():
     validate_submission_values({str(fid): "Hello"}, fields)  # must not raise
 
 
+def test_user_field_accepts_uuid():
+    fid = uuid.uuid4()
+    fields = [_FF("user", label="Assignee", required=True, id=fid)]
+    validate_submission_values({str(fid): str(uuid.uuid4())}, fields)  # must not raise
+
+
+def test_user_field_rejects_non_uuid():
+    fid = uuid.uuid4()
+    fields = [_FF("user", label="Assignee", required=True, id=fid)]
+    with pytest.raises(Exception):
+        validate_submission_values({str(fid): "not-a-uuid"}, fields)
+
+
 def test_required_field_missing_raises():
     fid = uuid.uuid4()
     fields = [_FF("short_text", label="Name", required=True, id=fid)]

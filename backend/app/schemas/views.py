@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_vali
 
 LIFECYCLE_STATES = ("draft", "active", "on_hold", "complete", "cancelled")
 COR_STATUSES = ("draft", "submitted", "approved", "rejected", "cancelled")
+ASSIGNMENT_STATUSES = ("open", "in_progress", "done", "cancelled")
 
 Aggregation = Literal[
     "count", "count_distinct", "sum", "avg", "min", "max", "pct_of_total"
@@ -36,7 +37,7 @@ class MetricScope(BaseModel):
 
 class MetricDefinition(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    entity: Literal["project", "milestone", "cor"]
+    entity: Literal["project", "milestone", "cor", "assignment"]
     aggregation: Aggregation
     # Required when the metric references custom fields (conditions or
     # target). All custom-field refs must belong to this template; the

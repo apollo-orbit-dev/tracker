@@ -1,10 +1,11 @@
 import { addMonths, endOfMonth, endOfWeek, format, startOfMonth, startOfWeek } from "date-fns"
+import { useTaxonomyList } from "@/api/taxonomy"
 import { useMemo, useState } from "react"
 
 import { useTopbarCrumbs } from "@/hooks/useTopbarCrumbs"
-import { AgendaList } from "@/components/calendar/AgendaList"
+import { ScheduleView } from "@/components/calendar/ScheduleView"
 import { CalendarItemDetailSheet } from "@/components/calendar/CalendarItemDetailSheet"
-import { CalendarToolbar, type CalendarFilters } from "@/components/calendar/CalendarToolbar"
+import { CalendarToolbar, type CalendarFilters, type CalendarView } from "@/components/calendar/CalendarToolbar"
 import { EventDetailSheet } from "@/components/calendar/EventDetailSheet"
 import { EventScopeDialog } from "@/components/calendar/EventScopeDialog"
 import { EventSheet } from "@/components/calendar/EventSheet"
@@ -24,7 +25,7 @@ import { hasRole } from "@/lib/roles"
 export function CalendarPage() {
   useTopbarCrumbs(useMemo(() => [{ label: "Calendar" }], []))
   const [month, setMonth] = useState(() => startOfMonth(new Date()))
-  const [view, setView] = useState<"month" | "agenda">("month")
+  const [view, setView] = useState<CalendarView>("month")
   const [selected, setSelected] = useState<CalendarItem | null>(null)
 
   // ── Event detail state ────────────────────────────────────────────────────
@@ -39,19 +40,29 @@ export function CalendarPage() {
 
   // ── Filters ───────────────────────────────────────────────────────────────
   const [filters, setFilters] = useState<CalendarFilters>({
-    department_id: null,
-    client_id: null,
-    discipline_id: null,
+    departmentIds: [],
+    clientIds: [],
+    disciplineIds: [],
     showMilestones: true,
     showAssignments: true,
     showHolidays: true,
     showEvents: true,
   })
 
-  const start = format(startOfWeek(startOfMonth(month)), "yyyy-MM-dd")
-  const end = format(endOfWeek(endOfMonth(month)), "yyyy-MM-dd")
+  // Month view fetches the visible grid range; Schedule fetches a rolling
+  // window from today through end of next month (the "Up next" horizon).
+  const start =
+    view === "month"
+      ? format(startOfWeek(startOfMonth(month)), "yyyy-MM-dd")
+      : format(new Date(), "yyyy-MM-dd")
+  const end =
+    view === "month"
+      ? format(endOfWeek(endOfMonth(month)), "yyyy-MM-dd")
+      : format(endOfMonth(addMonths(new Date(), 1)), "yyyy-MM-dd")
 
   const depts = useMyDepartments()
+  const clients = useTaxonomyList("clients", false)
+  const disciplines = useTaxonomyList("disciplines", false)
   const defaultDeptId = (depts.data ?? [])[0]?.id ?? ""
 
   // Only project_editor+ can create events — matches the toolbar's New-event
@@ -70,9 +81,9 @@ export function CalendarPage() {
       ? {
           start,
           end,
-          department_id: filters.department_id,
-          client_id: filters.client_id,
-          discipline_id: filters.discipline_id,
+          department_id: filters.departmentIds,
+          client_id: filters.clientIds,
+          discipline_id: filters.disciplineIds,
           types,
         }
       : null,
@@ -86,7 +97,7 @@ export function CalendarPage() {
 
   const eventsQuery = useCalendarEvents(
     filters.showEvents
-      ? { start, end, department_id: filters.department_id }
+      ? { start, end, department_id: filters.departmentIds }
       : null,
   )
   const events = filters.showEvents ? (eventsQuery.data?.items ?? []) : []
@@ -196,10 +207,15 @@ export function CalendarPage() {
           }
         />
       ) : (
-        <AgendaList
+        <ScheduleView
           items={items}
           holidays={holidays}
           events={events}
+          filters={filters}
+          onFilters={setFilters}
+          deptOptions={depts.data ?? []}
+          clientOptions={clients.data?.items ?? []}
+          disciplineOptions={disciplines.data?.items ?? []}
           onSelect={setSelected}
           onEventSelect={(ev) => setSelectedEvent(ev)}
         />

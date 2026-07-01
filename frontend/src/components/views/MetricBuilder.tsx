@@ -29,6 +29,7 @@ import { SavedMetricsMenu } from "./SavedMetricsMenu"
 import { ScopePicker } from "./ScopePicker"
 import {
   AGG_OPTIONS,
+  ASSIGNMENT_AGGS,
   COR_FIELDS,
   type FieldKind,
   MILESTONE_AGGS,
@@ -75,7 +76,9 @@ export function MetricBuilder({
   const aggOptions = (
     value.entity === "milestone"
       ? AGG_OPTIONS.filter((a) => MILESTONE_AGGS.has(a.value))
-      : AGG_OPTIONS
+      : value.entity === "assignment"
+        ? AGG_OPTIONS.filter((a) => ASSIGNMENT_AGGS.has(a.value))
+        : AGG_OPTIONS
   ).filter((a) => !excludePct || a.value !== "pct_of_total")
 
   // Target catalog: numeric aggregations need a numeric target
@@ -196,6 +199,7 @@ export function MetricBuilder({
               <SelectItem value="project">Projects</SelectItem>
               <SelectItem value="milestone">Milestones</SelectItem>
               <SelectItem value="cor">Change orders</SelectItem>
+              <SelectItem value="assignment">Assignments</SelectItem>
             </SelectContent>
           </Select>
         </div>

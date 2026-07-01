@@ -29,6 +29,7 @@ import { useEffect, useMemo, useState } from "react"
 import { Link, useNavigate, useParams } from "react-router"
 import { toast } from "sonner"
 
+import { Avatar } from "@/components/Avatar"
 import { Badge } from "@/components/Badge"
 import { AssignmentDeleteDialog } from "@/components/AssignmentDeleteDialog"
 import { AssignmentSheet } from "@/components/AssignmentSheet"
@@ -37,13 +38,14 @@ import { AssignmentStatusControl } from "@/components/AssignmentStatusControl"
 import { CORDeleteDialog } from "@/components/CORDeleteDialog"
 import { CORSheet } from "@/components/CORSheet"
 import { CORStatusBadge } from "@/components/CORStatusBadge"
-import { FieldValueInput } from "@/components/FieldValueInput"
+import { InlineField } from "@/components/InlineField"
 import { InlineText } from "@/components/InlineText"
 import { Panel } from "@/components/Panel"
 import { MilestoneDeleteDialog } from "@/components/MilestoneDeleteDialog"
 import { MilestoneSheet } from "@/components/MilestoneSheet"
 import { ProjectDeleteDialog } from "@/components/ProjectDeleteDialog"
 import { ProjectSheet } from "@/components/ProjectSheet"
+import { MilestoneTimeline } from "@/pages/project-detail/MilestoneTimeline"
 import { RightSidebar } from "@/pages/project-detail/RightSidebar"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -54,7 +56,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { ApiError } from "@/api/auth"
 import { type Assignment, useAssignmentList } from "@/api/assignments"
@@ -78,12 +79,77 @@ import {
 import { useAuth } from "@/hooks/useAuth"
 import { useTopbarCrumbs } from "@/hooks/useTopbarCrumbs"
 import { formatCurrency } from "@/lib/format"
+import { isEmptyFieldValue } from "@/lib/metric-value"
 import { lifecycleLabel, lifecycleTone } from "@/lib/lifecycle"
 import { hasRole } from "@/lib/roles"
 
 function detailReasons(err: ApiError | null): string[] {
   if (!err) return []
   return err.detail.split("; ")
+}
+
+// Shared table chrome so the milestones / CORs / assignments tables match
+// the mockup: a shaded, full-bleed uppercase header bar and padded cells.
+const TABLE_HEAD_ROW =
+  "border-b bg-[hsl(var(--card-2))] text-left text-[11px] font-semibold uppercase tracking-[0.03em] text-[hsl(var(--subtle-fg))]"
+const TABLE_ROW = "border-b last:border-b-0 hover:bg-muted/40"
+const CELL = "px-[18px] py-3"
+
+// Custom-field types that read better spanning the full width of the
+// two-column custom-fields grid (long text, date pairs/ranges, lists).
+const FULL_WIDTH_FIELD_TYPES = new Set([
+  "long_text",
+  "date_planned_actual",
+  "date_range",
+  "multi_select",
+  "user_picker_multi",
+])
+
+/** Month + day, parsing date-only strings as local midnight (no UTC shift). */
+function shortDate(d: string): string {
+  const dt = new Date(d.length === 10 ? `${d}T00:00:00` : d)
+  if (isNaN(dt.getTime())) return d
+  return dt.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+}
+
+/** Month + day + year (em-dash for null) — read-only milestone dates. */
+function fmtDate(d: string | null): string {
+  if (!d) return "—"
+  const dt = new Date(d.length === 10 ? `${d}T00:00:00` : d)
+  if (isNaN(dt.getTime())) return d
+  return dt.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  })
+}
+
+/**
+ * Assignment due-date display: formatted date plus an overdue / due-soon
+ * suffix and a tone color. Completed / cancelled work is never "overdue".
+ */
+function dueInfo(
+  due: string | null,
+  status: string,
+): { text: string; cls: string } {
+  if (!due) return { text: "—", cls: "text-muted-foreground" }
+  const formatted = shortDate(due)
+  if (status === "completed" || status === "cancelled")
+    return { text: formatted, cls: "text-muted-foreground" }
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const dt = new Date(due.length === 10 ? `${due}T00:00:00` : due)
+  const days = Math.round((dt.getTime() - today.getTime()) / 86_400_000)
+  if (days < 0)
+    return {
+      text: `${formatted} · ${Math.abs(days)}d overdue`,
+      cls: "font-medium text-[hsl(var(--tone-rose-fg))]",
+    }
+  if (days === 0)
+    return { text: `${formatted} · today`, cls: "text-[hsl(var(--tone-amber-fg))]" }
+  if (days <= 7)
+    return { text: `${formatted} · soon`, cls: "text-[hsl(var(--tone-amber-fg))]" }
+  return { text: formatted, cls: "text-muted-foreground" }
 }
 
 type ProjectDetailPageProps = {
@@ -157,19 +223,6 @@ export function ProjectDetailPage({
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
 
-  // Custom-fields local state (dirty-tracked vs server)
-  const [fieldValues, setFieldValues] = useState<Record<string, unknown>>({})
-  useEffect(() => {
-    if (project.data) setFieldValues(project.data.custom_field_values ?? {})
-  }, [project.data])
-  const dirty = useMemo(() => {
-    if (!project.data) return false
-    return (
-      JSON.stringify(fieldValues) !==
-      JSON.stringify(project.data.custom_field_values ?? {})
-    )
-  }, [fieldValues, project.data])
-
   const [editOpen, setEditOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [accessSheetOpen, setAccessSheetOpen] = useState(false)
@@ -230,13 +283,32 @@ export function ProjectDetailPage({
   const intersection = p.template_intersection || "—"
   const fieldDefList = p.template_field_defs
 
-  const onSaveFields = () => {
+  // Phase 25.3: per-field save-on-commit. Reuses the same project-update
+  // PATCH path (so backend validation + custom-field audit rows are
+  // unchanged); merges the one changed field into custom_field_values.
+  // No-op when unchanged; required fields can't be cleared client-side
+  // (backend remains the source of truth).
+  const saveField = (fieldId: string, next: unknown) => {
+    const fd = fieldDefList.find((f) => f.id === fieldId)
+    const current = (p.custom_field_values ?? {})[fieldId] ?? null
+    if (JSON.stringify(current) === JSON.stringify(next ?? null)) return
+    if (fd?.required && isEmptyFieldValue(next)) {
+      toast.error(`${fd.name} is required`)
+      return
+    }
     updateProject.mutate(
-      { id: p.id, body: { custom_field_values: fieldValues } },
       {
-        onSuccess: () => {
-          toast.success("Custom fields saved")
+        id: p.id,
+        body: {
+          custom_field_values: {
+            ...(p.custom_field_values ?? {}),
+            [fieldId]: next,
+          },
         },
+      },
+      {
+        onSuccess: () => toast.success("Field saved"),
+        onError: (e) => toast.error(e.detail),
       },
     )
   }
@@ -333,13 +405,13 @@ export function ProjectDetailPage({
               )}
             </div>
           </div>
-          <h1 className="text-[22px] font-bold tracking-tight">
+          <h1 className="text-2xl font-bold tracking-tight">
             <InlineText
               value={p.title}
               disabled={!canEdit}
               ariaLabel="Project title"
               className="w-full"
-              inputClassName="w-full bg-transparent border-0 p-0 text-[22px] font-bold tracking-tight focus-visible:outline-none"
+              inputClassName="w-full bg-transparent border-0 p-0 text-2xl font-bold tracking-tight focus-visible:outline-none"
               onCommit={(next) => {
                 const trimmed = next.trim()
                 if (!trimmed) {
@@ -379,6 +451,21 @@ export function ProjectDetailPage({
           )}
         </section>
 
+        {/* Milestone timeline (read-only; self-hides when no milestones) */}
+        <MilestoneTimeline
+          milestones={milestoneOrder}
+          onSelect={(id) => {
+            const el = document.getElementById(`ms-row-${id}`)
+            if (!el) return
+            el.scrollIntoView({ behavior: "smooth", block: "center" })
+            el.classList.add("bg-[hsl(var(--row-sel))]")
+            window.setTimeout(
+              () => el.classList.remove("bg-[hsl(var(--row-sel))]"),
+              1600,
+            )
+          }}
+        />
+
         {/* Custom fields */}
         <Panel
           icon={LayoutList}
@@ -386,7 +473,7 @@ export function ProjectDetailPage({
           subtitle="Defined by the project's template."
           collapsible
         >
-          <div className="space-y-4 p-4">
+          <div className="space-y-3 p-4">
             {cfError && (
               <Alert variant="destructive">
                 <AlertTitle>Save failed</AlertTitle>
@@ -404,35 +491,43 @@ export function ProjectDetailPage({
                 No custom fields defined on this template.
               </p>
             ) : (
-              <div className="space-y-4">
-                {fieldDefList.map((fd) => (
-                  <div key={fd.id} className="space-y-1">
-                    <Label>
+              <div className="grid grid-cols-1 gap-x-8 sm:grid-cols-2">
+                {fieldDefList.map((fd) => {
+                  const full = FULL_WIDTH_FIELD_TYPES.has(fd.field_type)
+                  const label = (
+                    <span className="text-sm text-muted-foreground">
                       {fd.name}
                       {fd.required && (
                         <span className="text-destructive"> *</span>
                       )}
-                    </Label>
-                    <FieldValueInput
+                    </span>
+                  )
+                  const editor = (
+                    <InlineField
                       field={fd}
-                      value={fieldValues[fd.id] ?? null}
-                      onChange={(v) =>
-                        setFieldValues({ ...fieldValues, [fd.id]: v })
-                      }
-                      disabled={!canEdit}
+                      value={(p.custom_field_values ?? {})[fd.id] ?? null}
+                      canEdit={canEdit}
+                      onCommit={(next) => saveField(fd.id, next)}
                     />
-                  </div>
-                ))}
-                {canEdit && (
-                  <div className="flex justify-end">
-                    <Button
-                      onClick={onSaveFields}
-                      disabled={!dirty || updateProject.isPending}
+                  )
+                  return full ? (
+                    <div
+                      key={fd.id}
+                      className="space-y-1 border-b py-2 sm:col-span-2"
                     >
-                      {updateProject.isPending ? "Saving…" : "Save changes"}
-                    </Button>
-                  </div>
-                )}
+                      <div className="px-2">{label}</div>
+                      {editor}
+                    </div>
+                  ) : (
+                    <div
+                      key={fd.id}
+                      className="flex items-baseline justify-between gap-3 border-b py-2"
+                    >
+                      <div className="shrink-0 pt-1.5">{label}</div>
+                      <div className="min-w-0 max-w-[62%]">{editor}</div>
+                    </div>
+                  )
+                })}
               </div>
             )}
           </div>
@@ -458,9 +553,9 @@ export function ProjectDetailPage({
             ) : undefined
           }
         >
-          <div className="p-4">
+          <>
             {milestoneOrder.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
+              <p className="p-4 text-sm text-muted-foreground">
                 No milestones yet.
               </p>
             ) : (
@@ -486,14 +581,14 @@ export function ProjectDetailPage({
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="text-left text-xs text-muted-foreground">
-                        <th className="w-[28px] py-2"></th>
-                        <th className="py-2 pr-3">Name</th>
-                        <th className="w-[110px] py-2 pr-3">Direction</th>
-                        <th className="w-[110px] py-2 pr-3">Date model</th>
-                        <th className="w-[160px] py-2 pr-3">Planned</th>
-                        <th className="w-[160px] py-2 pr-3">Actual</th>
-                        <th className="w-[40px] py-2"></th>
+                      <tr className={TABLE_HEAD_ROW}>
+                        <th className="w-[28px]"></th>
+                        <th className={CELL}>Name</th>
+                        <th className={`${CELL} w-[110px]`}>Direction</th>
+                        <th className={`${CELL} w-[110px]`}>Date model</th>
+                        <th className={`${CELL} w-[160px]`}>Planned</th>
+                        <th className={`${CELL} w-[160px]`}>Actual</th>
+                        <th className="w-[40px]"></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -538,7 +633,7 @@ export function ProjectDetailPage({
                 </div>
               </DndContext>
             )}
-          </div>
+          </>
         </Panel>
 
         {/* CORs */}
@@ -643,8 +738,13 @@ function MilestoneRow({
   const isAdhoc = m.template_milestone_def_id === null
 
   return (
-    <tr ref={setNodeRef} style={style} className="border-t">
-      <td className="w-[28px] p-0">
+    <tr
+      ref={setNodeRef}
+      id={`ms-row-${m.id}`}
+      style={style}
+      className={`${TABLE_ROW} transition-colors`}
+    >
+      <td className="w-[40px] pl-3">
         {canEdit && (
           <button
             ref={setActivatorNodeRef}
@@ -658,7 +758,7 @@ function MilestoneRow({
           </button>
         )}
       </td>
-      <td className="py-2 pr-3 font-medium">
+      <td className={`${CELL} font-medium`}>
         {m.name}
         {isAdhoc && (
           <span className="ml-2 rounded-md bg-muted px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
@@ -666,30 +766,35 @@ function MilestoneRow({
           </span>
         )}
       </td>
-      <td className="py-2 pr-3 text-xs text-muted-foreground">{m.direction}</td>
-      <td className="py-2 pr-3 text-xs text-muted-foreground">{m.date_model}</td>
-      <td className="py-2 pr-3">
-        <Input
-          type="date"
-          value={local.planned_date ?? ""}
-          onChange={(e) =>
-            onLocalChange(
-              "planned_date",
-              e.target.value === "" ? null : e.target.value,
-            )
-          }
-          onBlur={(e) =>
-            onBlur(
-              "planned_date",
-              e.target.value === "" ? null : e.target.value,
-            )
-          }
-          disabled={!canEdit}
-          aria-label={`Planned date for ${m.name}`}
-        />
+      <td className={`${CELL} text-xs text-muted-foreground`}>{m.direction}</td>
+      <td className={`${CELL} text-xs text-muted-foreground`}>{m.date_model}</td>
+      <td className={CELL}>
+        {canEdit ? (
+          <Input
+            type="date"
+            value={local.planned_date ?? ""}
+            onChange={(e) =>
+              onLocalChange(
+                "planned_date",
+                e.target.value === "" ? null : e.target.value,
+              )
+            }
+            onBlur={(e) =>
+              onBlur(
+                "planned_date",
+                e.target.value === "" ? null : e.target.value,
+              )
+            }
+            aria-label={`Planned date for ${m.name}`}
+          />
+        ) : (
+          <span className="text-sm">{fmtDate(local.planned_date)}</span>
+        )}
       </td>
-      <td className="py-2 pr-3">
-        {m.date_model === "planned_actual" ? (
+      <td className={CELL}>
+        {m.date_model !== "planned_actual" ? (
+          <span className="text-xs text-muted-foreground">—</span>
+        ) : canEdit ? (
           <Input
             type="date"
             value={local.actual_date ?? ""}
@@ -705,14 +810,13 @@ function MilestoneRow({
                 e.target.value === "" ? null : e.target.value,
               )
             }
-            disabled={!canEdit}
             aria-label={`Actual date for ${m.name}`}
           />
         ) : (
-          <span className="text-xs text-muted-foreground">—</span>
+          <span className="text-sm">{fmtDate(local.actual_date)}</span>
         )}
       </td>
-      <td className="py-2">
+      <td className={CELL}>
         {canEdit && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -768,53 +872,55 @@ function CORsCard({ pid, canEdit }: { pid: string; canEdit: boolean }) {
         ) : undefined
       }
     >
-      <div className="p-4">
+      <>
         {list.isError && (
-          <Alert variant="destructive">
-            <AlertTitle>Couldn't load CORs</AlertTitle>
-            <AlertDescription>{list.error.detail}</AlertDescription>
-          </Alert>
+          <div className="p-4">
+            <Alert variant="destructive">
+              <AlertTitle>Couldn't load CORs</AlertTitle>
+              <AlertDescription>{list.error.detail}</AlertDescription>
+            </Alert>
+          </div>
         )}
         {list.isLoading ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <p className="p-4 text-sm text-muted-foreground">Loading…</p>
         ) : items.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No CORs yet.</p>
+          <p className="p-4 text-sm text-muted-foreground">No CORs yet.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-xs text-muted-foreground">
-                  <th className="w-[120px] py-2 pr-3">Number</th>
-                  <th className="py-2 pr-3">Description</th>
-                  <th className="w-[120px] py-2 pr-3 text-right">Amount</th>
-                  <th className="w-[100px] py-2 pr-3">Status</th>
-                  <th className="w-[120px] py-2 pr-3">Submitted</th>
-                  <th className="w-[120px] py-2 pr-3">Approved</th>
-                  <th className="w-[40px] py-2"></th>
+                <tr className={TABLE_HEAD_ROW}>
+                  <th className={`${CELL} w-[120px]`}>Number</th>
+                  <th className={CELL}>Description</th>
+                  <th className={`${CELL} w-[120px] text-right`}>Amount</th>
+                  <th className={`${CELL} w-[100px]`}>Status</th>
+                  <th className={`${CELL} w-[120px]`}>Submitted</th>
+                  <th className={`${CELL} w-[120px]`}>Approved</th>
+                  <th className={`${CELL} w-[40px]`}></th>
                 </tr>
               </thead>
               <tbody>
                 {items.map((c) => (
-                  <tr key={c.id} className="border-t">
-                    <td className="py-2 pr-3 font-mono text-xs">{c.number}</td>
-                    <td className="py-2 pr-3">
+                  <tr key={c.id} className={TABLE_ROW}>
+                    <td className={`${CELL} font-mono text-xs`}>{c.number}</td>
+                    <td className={CELL}>
                       <span className="line-clamp-2 text-sm">
                         {c.description}
                       </span>
                     </td>
-                    <td className="py-2 pr-3 text-right font-mono text-xs">
+                    <td className={`${CELL} text-right font-mono text-xs`}>
                       {formatCurrency(c.amount)}
                     </td>
-                    <td className="py-2 pr-3">
+                    <td className={CELL}>
                       <CORStatusBadge status={c.status} />
                     </td>
-                    <td className="py-2 pr-3 text-xs text-muted-foreground">
+                    <td className={`${CELL} text-xs text-muted-foreground`}>
                       {c.submitted_date ?? "—"}
                     </td>
-                    <td className="py-2 pr-3 text-xs text-muted-foreground">
+                    <td className={`${CELL} text-xs text-muted-foreground`}>
                       {c.approved_date ?? "—"}
                     </td>
-                    <td className="py-2">
+                    <td className={CELL}>
                       {canEdit && (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -851,7 +957,7 @@ function CORsCard({ pid, canEdit }: { pid: string; canEdit: boolean }) {
             </table>
           </div>
         )}
-      </div>
+      </>
       <CORSheet
         pid={pid}
         open={sheetOpen}
@@ -910,53 +1016,66 @@ function AssignmentsCard({
         ) : undefined
       }
     >
-      <div className="p-4">
+      <>
         {list.isError && (
-          <Alert variant="destructive">
-            <AlertTitle>Couldn't load assignments</AlertTitle>
-            <AlertDescription>{list.error.detail}</AlertDescription>
-          </Alert>
+          <div className="p-4">
+            <Alert variant="destructive">
+              <AlertTitle>Couldn't load assignments</AlertTitle>
+              <AlertDescription>{list.error.detail}</AlertDescription>
+            </Alert>
+          </div>
         )}
         {list.isLoading ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <p className="p-4 text-sm text-muted-foreground">Loading…</p>
         ) : items.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No assignments yet.</p>
+          <p className="p-4 text-sm text-muted-foreground">
+            No assignments yet.
+          </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-xs text-muted-foreground">
-                  <th className="w-[140px] py-2 pr-3">Milestone</th>
-                  <th className="py-2 pr-3">Description</th>
-                  <th className="w-[140px] py-2 pr-3">Assignee</th>
-                  <th className="w-[110px] py-2 pr-3">Status</th>
-                  <th className="w-[110px] py-2 pr-3">Due</th>
-                  <th className="w-[40px] py-2"></th>
+                <tr className={TABLE_HEAD_ROW}>
+                  <th className={`${CELL} w-[140px]`}>Milestone</th>
+                  <th className={CELL}>Description</th>
+                  <th className={`${CELL} w-[150px]`}>Assignee</th>
+                  <th className={`${CELL} w-[110px]`}>Status</th>
+                  <th className={`${CELL} w-[150px]`}>Due</th>
+                  <th className={`${CELL} w-[40px]`}></th>
                 </tr>
               </thead>
               <tbody>
-                {items.map((a) => (
-                  <tr key={a.id} className="border-t">
-                    <td className="py-2 pr-3 text-xs text-muted-foreground">
+                {items.map((a) => {
+                  const due = dueInfo(a.due_date, a.status)
+                  return (
+                  <tr key={a.id} className={TABLE_ROW}>
+                    <td className={`${CELL} text-xs text-muted-foreground`}>
                       {a.milestone_name ?? "—"}
                     </td>
-                    <td className="py-2 pr-3">
+                    <td className={CELL}>
                       <span className="line-clamp-2 text-sm">
                         {a.description}
                       </span>
                     </td>
-                    <td className="py-2 pr-3 text-xs">{a.assignee_name}</td>
-                    <td className="py-2 pr-3">
+                    <td className={CELL}>
+                      <div className="flex items-center gap-2">
+                        <Avatar name={a.assignee_name} size={24} />
+                        <span className="truncate text-xs">
+                          {a.assignee_name}
+                        </span>
+                      </div>
+                    </td>
+                    <td className={CELL}>
                       {canEdit || a.assignee_user_id === currentUserId ? (
                         <AssignmentStatusControl pid={pid} assignment={a} />
                       ) : (
                         <AssignmentStatusBadge status={a.status} />
                       )}
                     </td>
-                    <td className="py-2 pr-3 text-xs text-muted-foreground">
-                      {a.due_date ?? "—"}
+                    <td className={`${CELL} text-xs ${due.cls}`}>
+                      {due.text}
                     </td>
-                    <td className="py-2">
+                    <td className={CELL}>
                       {canEdit && (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -988,12 +1107,13 @@ function AssignmentsCard({
                       )}
                     </td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>
         )}
-      </div>
+      </>
       <AssignmentSheet
         pid={pid}
         open={sheetOpen}
@@ -1090,23 +1210,22 @@ function NotesCard({
             <AlertDescription>{createError.detail}</AlertDescription>
           </Alert>
         )}
-        <div className="space-y-2">
+        <div className="flex items-end gap-2">
           <Textarea
+            className="flex-1"
             placeholder="Add a note…"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             rows={3}
             aria-label="New note"
           />
-          <div className="flex justify-end">
-            <Button
-              size="sm"
-              onClick={submitNew}
-              disabled={create.isPending || !draft.trim()}
-            >
-              {create.isPending ? "Posting…" : "Post note"}
-            </Button>
-          </div>
+          <Button
+            size="sm"
+            onClick={submitNew}
+            disabled={create.isPending || !draft.trim()}
+          >
+            {create.isPending ? "Posting…" : "Post note"}
+          </Button>
         </div>
 
         {list.isError && (
@@ -1116,7 +1235,7 @@ function NotesCard({
           </Alert>
         )}
 
-        <div className="space-y-3">
+        <div>
           {list.isLoading ? (
             <p className="text-sm text-muted-foreground">Loading…</p>
           ) : items.length === 0 ? (
@@ -1128,18 +1247,20 @@ function NotesCard({
               return (
                 <div
                   key={n.id}
-                  className="rounded-md border bg-background p-3 text-sm"
+                  className="flex gap-3 border-b py-3 text-sm last:border-b-0"
                 >
+                  <Avatar name={n.created_by.display_name} size={32} />
+                  <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-baseline gap-2">
-                      <span className="font-medium">
+                      <span className="font-semibold">
                         {n.created_by.display_name}
                       </span>
-                      <span className="text-xs text-muted-foreground">
+                      <span className="text-xs text-[hsl(var(--subtle-fg))]">
                         {new Date(n.created_at).toLocaleString()}
                       </span>
                       {n.updated_at !== n.created_at && (
-                        <span className="text-xs text-muted-foreground">
+                        <span className="text-xs italic text-[hsl(var(--subtle-fg))]">
                           (edited)
                         </span>
                       )}
@@ -1215,8 +1336,9 @@ function NotesCard({
                       </div>
                     </div>
                   ) : (
-                    <p className="mt-1 whitespace-pre-wrap">{n.body}</p>
+                    <p className="mt-1 whitespace-pre-wrap text-sm">{n.body}</p>
                   )}
+                  </div>
                 </div>
               )
             })

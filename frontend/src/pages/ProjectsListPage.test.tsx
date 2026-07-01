@@ -396,56 +396,6 @@ describe("ProjectsListPage", () => {
     expect(templateHeader.className).toContain("text-muted-foreground")
   })
 
-  // 4.8.16: Grouped layout is temporarily disabled pending a rework.
-  // Skip the layout-switch coverage until it's brought back; the
-  // render logic itself (renderGrouped) is still in the bundle so
-  // re-enabling later is a one-line flip on the Segmented option.
-  it.skip("switches to Grouped layout and renders lifecycle group headers", async () => {
-    const user = userEvent.setup()
-    stubFetchByRoute([
-      {
-        match: (u) => u.endsWith("/api/auth/me"),
-        respond: () => jsonResponse(ADMIN),
-      },
-      {
-        match: (u) => u.includes("/api/projects"),
-        respond: () =>
-          jsonResponse({
-            items: [
-              project({ id: "p1", number: "M1", title: "Draft One", state: "draft" }),
-              project({ id: "p2", number: "M2", title: "Active One", state: "active" }),
-              project({ id: "p3", number: "M3", title: "Active Two", state: "active" }),
-            ],
-            total: 3,
-            limit: 15,
-            offset: 0,
-            page: 1,
-            page_size: 15,
-          }),
-      },
-      ...supportStubs,
-    ])
-    renderWithProviders(<App />, { route: "/projects" })
-
-    await waitFor(() => {
-      expect(screen.getByText("Draft One")).toBeInTheDocument()
-    })
-    // Default layout is "table" — no group header buttons.
-    expect(
-      screen.queryByRole("button", { name: /toggle .* group/i }),
-    ).not.toBeInTheDocument()
-
-    // Switch to Grouped layout via the Segmented control.
-    await user.click(screen.getByRole("tab", { name: /grouped/i }))
-    // Group headers appear for each lifecycle state present.
-    expect(
-      screen.getByRole("button", { name: /toggle draft group/i }),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole("button", { name: /toggle active group/i }),
-    ).toBeInTheDocument()
-  })
-
   it("Split layout shows peek panel for the selected project", async () => {
     const user = userEvent.setup()
     stubFetchByRoute([
@@ -524,12 +474,14 @@ describe("ProjectsListPage", () => {
     await waitFor(() => {
       expect(screen.getByText("Custom fields")).toBeInTheDocument()
     })
-    // Milestone name from the seeded detail data shows up.
-    expect(screen.getByText("IFC Submittal")).toBeInTheDocument()
+    // Milestone name from the seeded detail data shows up. Phase 25.2: it
+    // now appears in both the timeline card and the table, so assert
+    // presence rather than uniqueness.
+    expect(screen.getAllByText("IFC Submittal").length).toBeGreaterThan(0)
   })
 
   it("Peek panel renders an Open change orders section when there are draft/submitted CORs", async () => {
-    // 4.8.12: peek panel is rendered in Table/Grouped modes (not Split).
+    // 4.8.12: peek panel is rendered in Table mode (not Split).
     window.localStorage.removeItem("tracker.projectsListLayout")
     const user = userEvent.setup()
     stubFetchByRoute([
@@ -641,9 +593,10 @@ describe("ProjectsListPage", () => {
     })
     seen.length = 0
 
-    // Open the Department filter and pick the seeded department.
-    await user.click(screen.getByRole("combobox", { name: /department filter/i }))
-    await user.click(await screen.findByRole("option", { name: /^DIV1$/ }))
+    // Open the Department filter (multi-select popover) and check the
+    // seeded department in the checklist.
+    await user.click(screen.getByRole("button", { name: /department filter/i }))
+    await user.click(await screen.findByText(/^DIV1$/))
     await waitFor(() => {
       expect(
         seen.some((u) => u.includes(`department_id=${DEPT_ID}`)),

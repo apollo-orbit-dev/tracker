@@ -48,9 +48,9 @@ def _parse_types(types: str | None) -> set[str]:
 def list_calendar_items(
     start: date,
     end: date,
-    department_id: uuid.UUID | None = None,
-    client_id: uuid.UUID | None = None,
-    discipline_id: uuid.UUID | None = None,
+    department_id: list[uuid.UUID] = Query(default=[]),
+    client_id: list[uuid.UUID] = Query(default=[]),
+    discipline_id: list[uuid.UUID] = Query(default=[]),
     types: str | None = Query(default=None),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -61,8 +61,12 @@ def list_calendar_items(
         raise HTTPException(status_code=422, detail=f"range exceeds {MAX_SPAN_DAYS} days")
     wanted = _parse_types(types)
 
+    # Multi-select DCD: each param is a (possibly empty) list of ids.
     pid_sq = scoped_project_ids(
-        db, user, department_id=department_id, client_id=client_id, discipline_id=discipline_id
+        db, user,
+        department_ids=department_id or None,
+        client_ids=client_id or None,
+        discipline_ids=discipline_id or None,
     ).subquery()
     scoped = select(pid_sq.c.id)
 
@@ -138,7 +142,8 @@ def list_calendar_holidays(
 
 
 @router.get("/events", response_model=CalendarEventsResponse)
-def list_calendar_events(start: date, end: date, department_id: uuid.UUID | None = None,
+def list_calendar_events(start: date, end: date,
+                         department_id: list[uuid.UUID] = Query(default=[]),
                          db: Session = Depends(get_db), user: User = Depends(get_current_user)
                          ) -> CalendarEventsResponse:
     if end < start:
@@ -153,8 +158,9 @@ def list_calendar_events(start: date, end: date, department_id: uuid.UUID | None
         if not allowed:
             return CalendarEventsResponse(items=[])
         q = q.where(Event.department_id.in_(allowed))
-    if department_id is not None:
-        q = q.where(Event.department_id == department_id)
+    # Multi-select: filter to the chosen departments (narrows within scope).
+    if department_id:
+        q = q.where(Event.department_id.in_(department_id))
     events = db.execute(q).scalars().all()
 
     items: list[CalendarEventItem] = []

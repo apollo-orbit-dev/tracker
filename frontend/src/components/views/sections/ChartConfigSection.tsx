@@ -90,14 +90,17 @@ export function ChartConfigSection({ initialConfig, onState }: SectionProps) {
         </div>
       </div>
 
+      <MetricBuilder value={metric} onChange={setMetric} excludePct />
+
+      {/* Group-by sits below the metric builder (whose first control is
+          Entity): the group-by catalog depends on the chosen entity, so the
+          entity is picked first, top-down. */}
       <GroupBySelect
         groupBy={groupBy}
         groupByValid={groupByValid}
         groupOpts={groupOpts}
         onChange={setGroupBy}
       />
-
-      <MetricBuilder value={metric} onChange={setMetric} excludePct />
 
       <div className="flex items-center justify-between">
         <Label htmlFor="block-cfg-money">Format as money</Label>

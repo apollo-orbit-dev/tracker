@@ -103,12 +103,14 @@ def validate_sort(
     sort_direction: str | None,
     *,
     live_custom_field_ids: set[uuid.UUID] = frozenset(),
+    live_milestone_def_ids: set[uuid.UUID] = frozenset(),
 ) -> None:
     """Raise ValidationError if the sort selection is malformed.
 
     sort_key may be a built-in column, a `custom_field:<uuid>` key for a
-    live custom field of the template (Phase 23.4), or null. sort_direction
-    must be 'asc' or 'desc' iff sort_key is set, and null iff it's null.
+    live custom field (Phase 23.4), a `milestone:<uuid>:date|planned|actual`
+    key for a live milestone def (Phase 27.4), or null. sort_direction must
+    be 'asc' or 'desc' iff sort_key is set, and null iff it's null.
     """
     paired = (sort_key is None) == (sort_direction is None)
     if not paired:
@@ -119,13 +121,21 @@ def validate_sort(
         return
     if sort_key not in SORTABLE_BUILTIN_KEYS:
         parsed = parse_column_key(sort_key)
-        if parsed is None or parsed[0] != "custom_field":
+        if parsed is None or parsed[0] not in ("custom_field", "milestone"):
             raise ValidationError(
-                [f"sort_key must be a built-in or custom_field column: {sort_key}"]
+                [
+                    "sort_key must be a built-in, custom_field, or milestone "
+                    f"column: {sort_key}"
+                ]
             )
-        if uuid.UUID(parsed[1]) not in live_custom_field_ids:
+        category, ident, _mode = parsed
+        if category == "custom_field" and uuid.UUID(ident) not in live_custom_field_ids:
             raise ValidationError(
                 [f"sort_key custom field not in this template: {sort_key}"]
+            )
+        if category == "milestone" and uuid.UUID(ident) not in live_milestone_def_ids:
+            raise ValidationError(
+                [f"sort_key milestone not in this template: {sort_key}"]
             )
     if sort_direction not in ("asc", "desc"):
         raise ValidationError(

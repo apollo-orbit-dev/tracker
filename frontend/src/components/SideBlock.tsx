@@ -19,14 +19,16 @@ export function SideBlock({
   className,
 }: SideBlockProps) {
   return (
-    <section className={`space-y-2 ${className ?? ""}`}>
-      <header className="flex items-center justify-between">
-        <h3 className="text-[11px] font-semibold uppercase tracking-[0.04em] text-muted-foreground">
+    <section
+      className={`overflow-hidden rounded-[14px] border bg-card ${className ?? ""}`}
+    >
+      <header className="flex items-center justify-between px-4 pt-3 pb-1.5">
+        <h3 className="text-[11px] font-semibold uppercase tracking-[0.05em] text-[hsl(var(--subtle-fg))]">
           {label}
         </h3>
         {action}
       </header>
-      <div className="space-y-1.5">{children}</div>
+      <div className="space-y-1.5 px-4 pb-3">{children}</div>
     </section>
   )
 }

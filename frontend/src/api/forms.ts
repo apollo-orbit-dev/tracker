@@ -115,6 +115,25 @@ export function useForm(id: string | undefined) {
   })
 }
 
+// Phase 27.9 — users in a form's department, for a user-picker field at
+// fill-out / review. Reuses the roster UserPickerItem shape.
+export type FormUserOption = { id: string; email: string; display_name: string }
+export type FormUserOptionsResponse = { items: FormUserOption[]; total: number }
+
+export function useFormUserOptions(formId: string | undefined, enabled = true) {
+  return useQuery<FormUserOptionsResponse, ApiError>({
+    queryKey: ["forms", formId, "user-options"],
+    queryFn: () =>
+      apiCall<FormUserOptionsResponse>(
+        `/api/forms/${formId}/user-options`,
+        { method: "GET" },
+        "Load failed",
+      ),
+    enabled: !!formId && enabled,
+    staleTime: 60_000,
+  })
+}
+
 export function useFormCreate() {
   const qc = useQueryClient()
   return useMutation<

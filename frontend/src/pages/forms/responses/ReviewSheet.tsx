@@ -34,7 +34,7 @@ import {
 } from "@/components/ui/sheet"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/Badge"
-import { useForm, useSubmission, useSubmissionApprove, useSubmissionReject } from "@/api/forms"
+import { useForm, useFormUserOptions, useSubmission, useSubmissionApprove, useSubmissionReject } from "@/api/forms"
 import { useProjectList } from "@/api/projects"
 import { useEligibleAssignees } from "@/api/assignments"
 import { ApiError } from "@/api/auth"
@@ -115,6 +115,16 @@ export function ReviewSheet({ formId, sid, open, onOpenChange }: Props) {
           a.created_at.localeCompare(b.created_at),
       )
     : []
+
+  // Phase 27.9: dept-scoped users for any user-picker field. The assignee
+  // field (a user field bound to `assignee`), when present, IS the assignee
+  // control — the reviewer overrides by editing it, so the separate
+  // Pattern-B assignee picker below is hidden for those forms.
+  const hasUserField = sortedFields.some((f) => f.field_type === "user")
+  const { data: userOpts } = useFormUserOptions(formId ?? undefined, hasUserField)
+  const assigneeField = sortedFields.find(
+    (f) => f.field_type === "user" && f.target_key === "assignee",
+  )
 
   // Controlled editable field values (string, seeded from submission values).
   const [values, setValues] = useState<Record<string, string>>({})
@@ -213,7 +223,10 @@ export function ReviewSheet({ formId, sid, open, onOpenChange }: Props) {
     (isCORForm
       ? corNumberValid && targetProjectId !== null
       : isAssignmentForm
-        ? targetProjectId !== null && assigneeId !== null
+        ? targetProjectId !== null &&
+          (assigneeField
+            ? (values[assigneeField.id] ?? "").trim() !== ""
+            : assigneeId !== null)
         : isMilestoneForm
           ? targetProjectId !== null && msDirection !== "" && msDateModel !== ""
           : isIntakeForm
@@ -253,7 +266,11 @@ export function ReviewSheet({ formId, sid, open, onOpenChange }: Props) {
         target_project_id: requiresProject ? targetProjectId : null,
         cor_number: isCORForm ? corNumber : null,
         cor_status: corStatus,
-        assignee_user_id: isAssignmentForm ? assigneeId : null,
+        // With a user-picker assignee field, the assignee travels in
+        // final_values (writer reads mapped.assignee); otherwise the reviewer's
+        // Pattern-B pick is sent explicitly.
+        assignee_user_id:
+          isAssignmentForm && !assigneeField ? assigneeId : null,
         milestone_direction: isMilestoneForm ? msDirection : null,
         milestone_date_model: isMilestoneForm ? msDateModel : null,
         intake_project_number: isIntakeForm ? projectNumber : null,
@@ -366,6 +383,7 @@ export function ReviewSheet({ formId, sid, open, onOpenChange }: Props) {
                             numericError={numericErrors[field.id]}
                             idPrefix="review-"
                             applyRequired={false}
+                            userOptions={userOpts?.items ?? []}
                           />
                         ) : (
                           <p className="text-sm text-muted-foreground">
@@ -373,6 +391,12 @@ export function ReviewSheet({ formId, sid, open, onOpenChange }: Props) {
                               const raw = sub.values[field.id]
                               if (raw === undefined || raw === null) return "—"
                               if (typeof raw === "boolean") return raw ? "Yes" : "No"
+                              if (field.field_type === "user") {
+                                const u = (userOpts?.items ?? []).find(
+                                  (x) => x.id === String(raw),
+                                )
+                                return u ? u.display_name : String(raw)
+                              }
                               return String(raw)
                             })()}
                           </p>
@@ -421,8 +445,10 @@ export function ReviewSheet({ formId, sid, open, onOpenChange }: Props) {
                 </div>
               )}
 
-              {/* ── Assignee (pending assignment forms only, Pattern B) ── */}
-              {isPending && isAssignmentForm && (
+              {/* ── Assignee (Pattern B) — only when the form has NO user-picker
+                     assignee field. With one, the reviewer overrides by editing
+                     that field above (Phase 27.9). ── */}
+              {isPending && isAssignmentForm && !assigneeField && (
                 <div className="space-y-1.5">
                   <Label className="text-sm">
                     Assignee{" "}

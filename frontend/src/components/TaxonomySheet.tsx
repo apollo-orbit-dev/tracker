@@ -30,7 +30,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { ApiError } from "@/api/auth"
-import { useMyDepartments } from "@/api/me"
+import { useManageableDepartments } from "@/api/me"
 import {
   isDeptScoped,
   type TaxonomyItem,
@@ -84,7 +84,11 @@ export function TaxonomySheet({
   const placeholders = PLACEHOLDERS[path]
   const create = useTaxonomyCreate(path)
   const update = useTaxonomyUpdate(path)
-  const departments = useMyDepartments()
+  // Phase 27.11: the create dept picker offers only departments the caller can
+  // *manage* (admins get all; DMs get their DM+ depts) — so a DM can't pick a
+  // dept they don't manage (the backend would 403 anyway). Only fetched for
+  // dept-scoped taxonomies (clients / disciplines).
+  const departments = useManageableDepartments(scoped)
   const submitting = create.isPending || update.isPending
   const error =
     (create.error instanceof ApiError && create.error) ||

@@ -117,6 +117,44 @@ def test_targets_endpoint_returns_cor_key(env, client_as):
     assert "fields" in data["targets"]["cor"]
     assert data["field_type_map"]["currency"] == "currency"
     assert data["field_type_map"]["long_text"] == "text"
+    # Phase 27.9: user field type maps to "user"; the assignment target has an
+    # assignee field of that type.
+    assert data["field_type_map"]["user"] == "user"
+    assignee = [f for f in data["targets"]["assignment"]["fields"] if f["key"] == "assignee"]
+    assert assignee and assignee[0]["type"] == "user"
+
+
+def test_user_options_returns_dept_users_for_viewer(env, client_as, db_session):
+    # Phase 27.9: a viewer who can read an active form gets its department's
+    # users for a user-picker field.
+    dept = env["dept"]
+    editor = env["editor"]
+    viewer = env["viewer"]
+    c = client_as(editor)
+    fid = c.post("/api/forms", json={"name": "u", "department_id": str(dept.id)}).json()["id"]
+    c.patch(f"/api/forms/{fid}", json={"status": "active"})
+
+    r = client_as(viewer).get(f"/api/forms/{fid}/user-options")
+    assert r.status_code == 200
+    emails = {u["email"] for u in r.json()["items"]}
+    # Both dept members are present; the list is scoped to the form's dept.
+    assert "editor.a4@x.com" in emails and "viewer.a4@x.com" in emails
+
+
+def test_user_options_404_for_outsider(env, client_as, db_session):
+    from backend.tests.conftest import _make_dept, _make_user
+
+    dept = env["dept"]
+    editor = env["editor"]
+    other_dept = _make_dept(db_session, code="FORMS_A4_OTHER")
+    outsider = _make_user(db_session, email="outsider.a4@x.com", role="viewer",
+                          department_id=other_dept.id)
+    c = client_as(editor)
+    fid = c.post("/api/forms", json={"name": "u2", "department_id": str(dept.id)}).json()["id"]
+    c.patch(f"/api/forms/{fid}", json={"status": "active"})
+    # An outsider can't read the form → can't list its users.
+    r = client_as(outsider).get(f"/api/forms/{fid}/user-options")
+    assert r.status_code == 404
 
 
 def test_draft_not_listed_for_viewer(env, client_as):

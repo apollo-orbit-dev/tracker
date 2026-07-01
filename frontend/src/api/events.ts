@@ -42,7 +42,7 @@ export type CalendarEventItem = {
 export type CalendarEventsParams = {
   start: string
   end: string
-  department_id?: string | null
+  department_id?: string[]
 }
 
 export type EventCreate = {
@@ -116,7 +116,7 @@ export function useCalendarEvents(params: CalendarEventsParams | null) {
     queryKey: [...EVENTS_KEY, params],
     queryFn: () => {
       const u = new URLSearchParams({ start: params!.start, end: params!.end })
-      if (params!.department_id) u.set("department_id", params!.department_id)
+      for (const id of params!.department_id ?? []) u.append("department_id", id)
       return apiCall<{ items: CalendarEventItem[] }>(
         `/api/calendar/events?${u.toString()}`,
         { method: "GET" },

@@ -504,7 +504,65 @@ def _make_assignment_form(db: Session, dept: Department, creator):
     return form, desc, due
 
 
+def _make_assignment_form_with_assignee(db: Session, dept: Department, creator):
+    """Assignment-target form with a user-picker field bound to assignee."""
+    form = Form(
+        department_id=dept.id, name="Task intake (assignee)",
+        target_entity="assignment", status="active", created_by=creator.id,
+    )
+    db.add(form)
+    db.flush()
+    desc = FormField(form_id=form.id, label="What", field_type="long_text",
+                     required=True, order_index=0, target_key="description")
+    who = FormField(form_id=form.id, label="Who", field_type="user",
+                    required=True, order_index=1, target_key="assignee")
+    db.add_all([desc, who])
+    db.flush()
+    return form, desc, who
+
+
 class TestAssignmentWriter:
+    def test_assignee_from_form_field(self, db_session: Session) -> None:
+        # Phase 27.9: the submitter's user-picker field supplies the assignee;
+        # no reviewer override in ctx.
+        dept = _make_dept(db_session, code="FP-ASG-FLD")
+        editor = _make_user(db_session, email="fp-asg-fld@example.com",
+                            role="project_editor", department_id=dept.id)
+        project = _make_project(db_session, dept, editor, "FP-ASG-FLD-1")
+        form, desc, who = _make_assignment_form_with_assignee(db_session, dept, editor)
+        vals = {str(desc.id): "Inspect footings", str(who.id): str(editor.id)}
+        sub = FormSubmission(form_id=form.id, submitted_by=editor.id, values=vals,
+                             target_project_id=project.id, status="pending")
+        db_session.add(sub)
+        db_session.flush()
+        db_session.refresh(form)
+        obj = push_submission(
+            db_session, editor, sub, form, final_values=vals,
+            ctx={"target_project_id": project.id, "assignee_user_id": None},
+        )
+        assert obj.assignee_user_id == editor.id
+
+    def test_reviewer_override_beats_form_field(self, db_session: Session) -> None:
+        # ctx.assignee_user_id (reviewer override) wins over the form field.
+        dept = _make_dept(db_session, code="FP-ASG-OVR")
+        editor = _make_user(db_session, email="fp-asg-ovr@example.com",
+                            role="project_editor", department_id=dept.id)
+        other = _make_user(db_session, email="fp-asg-ovr2@example.com",
+                           role="project_editor", department_id=dept.id)
+        project = _make_project(db_session, dept, editor, "FP-ASG-OVR-1")
+        form, desc, who = _make_assignment_form_with_assignee(db_session, dept, editor)
+        vals = {str(desc.id): "Task", str(who.id): str(editor.id)}
+        sub = FormSubmission(form_id=form.id, submitted_by=editor.id, values=vals,
+                             target_project_id=project.id, status="pending")
+        db_session.add(sub)
+        db_session.flush()
+        db_session.refresh(form)
+        obj = push_submission(
+            db_session, editor, sub, form, final_values=vals,
+            ctx={"target_project_id": project.id, "assignee_user_id": other.id},
+        )
+        assert obj.assignee_user_id == other.id
+
     def test_creates_assignment_with_approval_assignee(self, db_session: Session) -> None:
         dept = _make_dept(db_session, code="FP-ASG")
         editor = _make_user(db_session, email="fp-asg@example.com",

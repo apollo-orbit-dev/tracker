@@ -21,6 +21,7 @@ from backend.app.auth.scope import (
 )
 from backend.app.db.models import (
     COR,
+    Assignment,
     Milestone,
     Project,
     Template,
@@ -29,6 +30,7 @@ from backend.app.db.models import (
     User,
 )
 from backend.app.schemas.views import (
+    ASSIGNMENT_STATUSES,
     COR_STATUSES,
     LIFECYCLE_STATES,
     BreakdownBlockConfig,
@@ -122,6 +124,15 @@ COR_FIELDS: dict[str, tuple[str, tuple[str, ...] | None]] = {
     "submitted_date": ("date", None),
     "approved_date": ("date", None),
 }
+# Phase 27.8: assignments are count-only (no numeric field). status is the
+# one groupable dimension; due_date/created_at are condition-only dates.
+# (Grouping by assignee/milestone would need a user/def name join, and a
+# due-date bucket would need a CASE group-expr — both deferred.)
+ASSIGNMENT_FIELDS: dict[str, tuple[str, tuple[str, ...] | None]] = {
+    "status": ("select", ASSIGNMENT_STATUSES),
+    "due_date": ("date", None),
+    "created_at": ("date", None),
+}
 
 NUMERIC_AGGS = frozenset({"sum", "avg", "min", "max"})
 
@@ -152,6 +163,7 @@ def _resolve_field(
         "project": PROJECT_BUILTINS,
         "milestone": MILESTONE_FIELDS,
         "cor": COR_FIELDS,
+        "assignment": ASSIGNMENT_FIELDS,
     }[entity]
     if field_ref in builtins:
         kind, choices = builtins[field_ref]
@@ -169,6 +181,9 @@ def _resolve_field(
             ("cor", "amount"): COR.amount,
             ("cor", "submitted_date"): COR.submitted_date,
             ("cor", "approved_date"): COR.approved_date,
+            ("assignment", "status"): Assignment.status,
+            ("assignment", "due_date"): Assignment.due_date,
+            ("assignment", "created_at"): cast(Assignment.created_at, SADate),
         }
         return _ResolvedField(kind, column=columns[(entity, field_ref)], choices=choices)
 
@@ -318,6 +333,8 @@ def validate_metric(db: Session, user: User, m: MetricDefinition) -> dict:
         reasons.append(f"{m.aggregation} takes no target_field")
     if m.entity == "milestone" and m.aggregation not in ("count", "pct_of_total"):
         reasons.append("milestone metrics support count / pct_of_total only")
+    if m.entity == "assignment" and m.aggregation not in ("count", "pct_of_total"):
+        reasons.append("assignment metrics support count / pct_of_total only")
 
     if reasons:
         raise ConfigError(reasons)
@@ -512,6 +529,14 @@ def _entity_base(m: MetricDefinition, where: list):
             .join(Project, Milestone.project_id == Project.id)
             .join(Template, Project.template_id == Template.id)
             .where(Milestone.deleted_at.is_(None), *where)
+        )
+    if m.entity == "assignment":
+        # Dept-scoped through the project, same as every other entity.
+        return (
+            select(Assignment.id)
+            .join(Project, Assignment.project_id == Project.id)
+            .join(Template, Project.template_id == Template.id)
+            .where(Assignment.deleted_at.is_(None), *where)
         )
     base = (
         select(COR.id)
@@ -750,6 +775,15 @@ def drill_rows(
         rows = [
             (rid, pid, name, f"{ptitle} · planned {planned or '—'}")
             for rid, pid, name, ptitle, planned in db.execute(q).all()
+        ]
+    elif m.entity == "assignment":
+        q = base.with_only_columns(
+            Assignment.id, Project.id, Assignment.description,
+            Project.title, Assignment.status, Assignment.due_date,
+        ).order_by(Assignment.due_date.nulls_last()).limit(DRILL_ROW_CAP)
+        rows = [
+            (rid, pid, desc, f"{ptitle} · {status} · due {due or '—'}")
+            for rid, pid, desc, ptitle, status, due in db.execute(q).all()
         ]
     else:
         q = base.with_only_columns(

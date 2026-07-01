@@ -32,8 +32,8 @@ const GROUPS: Group[] = [
     label: "Taxonomy",
     items: [
       { to: "/admin/departments", label: "Departments", icon: Building2, requireRole: "admin" },
-      { to: "/admin/clients", label: "Clients", icon: Briefcase, requireRole: "admin" },
-      { to: "/admin/disciplines", label: "Disciplines", icon: Layers, requireRole: "admin" },
+      { to: "/admin/clients", label: "Clients", icon: Briefcase, requireRole: "department_manager" },
+      { to: "/admin/disciplines", label: "Disciplines", icon: Layers, requireRole: "department_manager" },
       {
         to: "/admin/templates",
         label: "Templates",

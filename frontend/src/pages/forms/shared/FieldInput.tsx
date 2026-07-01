@@ -13,7 +13,8 @@ import {
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
-import type { FormField } from "@/api/forms"
+import { UserCombobox } from "@/components/UserCombobox"
+import type { FormField, FormUserOption } from "@/api/forms"
 
 type Props = {
   field: FormField
@@ -24,6 +25,8 @@ type Props = {
   idPrefix?: string
   /** Whether to set the HTML `required` attribute (fill-out: yes; review: no). */
   applyRequired?: boolean
+  /** Users for a `user`-type field's picker (dept-scoped; Phase 27.9). */
+  userOptions?: FormUserOption[]
 }
 
 export function FieldInput({
@@ -33,10 +36,22 @@ export function FieldInput({
   numericError,
   idPrefix = "",
   applyRequired = true,
+  userOptions = [],
 }: Props) {
   const ft = field.field_type
   const id = `${idPrefix}${field.id}`
   const required = applyRequired && field.required
+
+  if (ft === "user") {
+    return (
+      <UserCombobox
+        users={userOptions}
+        value={value}
+        onChange={onChange}
+        placeholder={field.placeholder || "Select a person…"}
+      />
+    )
+  }
 
   if (ft === "long_text") {
     return (

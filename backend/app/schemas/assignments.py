@@ -65,3 +65,19 @@ class AssignmentOut(BaseModel):
 class AssignmentListResponse(BaseModel):
     items: list[AssignmentOut]
     total: int
+
+
+# ---- "my assignments" (Phase 27.6) ---------------------------------------
+
+
+class MyAssignmentOut(AssignmentOut):
+    """An assignment plus its project title — the cross-project
+    /api/me/assignments feed isn't nested under a known project, so the
+    project title travels with each row for the dashboard widget."""
+
+    project_title: str
+
+
+class MyAssignmentListResponse(BaseModel):
+    items: list[MyAssignmentOut]
+    total: int

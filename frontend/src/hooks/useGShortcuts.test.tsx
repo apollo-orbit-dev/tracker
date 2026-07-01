@@ -86,11 +86,11 @@ describe("useGShortcuts", () => {
     fireEvent.keyDown(window, { key: "g" })
     fireEvent.keyDown(window, { key: "c" })
 
-    // The calendar page renders a Month/Agenda view toggle (role="tab");
-    // the Agenda tab is unique to that route and role-independent.
+    // The calendar page renders a Month/Schedule view toggle (role="tab");
+    // the Schedule tab is unique to that route and role-independent.
     await waitFor(() => {
       expect(
-        screen.getByRole("tab", { name: "Agenda" }),
+        screen.getByRole("tab", { name: "Schedule" }),
       ).toBeInTheDocument()
     })
   })

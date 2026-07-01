@@ -58,18 +58,26 @@ export const SORT_PARAM_BY_KEY: Record<string, string> = {
 
 /**
  * Backend `sort` param for a column key. Built-ins map via the table
- * above; custom-field keys pass through unchanged (the backend accepts
- * `custom_field:<id>` directly, Phase 23.4). Returns undefined for
- * unsortable keys (e.g. milestone columns this phase).
+ * above; custom-field (Phase 23.4) and milestone (Phase 27.4) keys pass
+ * through unchanged — the backend accepts `custom_field:<id>` and
+ * `milestone:<def_id>:<mode>` directly. Returns undefined for unsortable keys.
  */
 export function sortParamForKey(key: string): string | undefined {
-  if (key.startsWith("custom_field:")) return key
+  if (key.startsWith("custom_field:") || key.startsWith("milestone:")) return key
   return SORT_PARAM_BY_KEY[key]
 }
 
-/** True when a column can be clicked to sort (built-ins + custom fields). */
+/**
+ * True when a column can be clicked to sort: built-ins, custom fields, and
+ * milestone date columns (Phase 27.4 — ordered by the def's planned/actual
+ * date via a correlated subquery).
+ */
 export function isSortable(key: string): boolean {
-  return key.startsWith("builtin:") || key.startsWith("custom_field:")
+  return (
+    key.startsWith("builtin:") ||
+    key.startsWith("custom_field:") ||
+    key.startsWith("milestone:")
+  )
 }
 
 export function parseColumnKey(key: string): ParsedKey | null {

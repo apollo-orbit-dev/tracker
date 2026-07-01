@@ -7,6 +7,7 @@ import { CORSummaryWidget } from "@/components/widgets/CORSummaryWidget"
 import { FieldAggregateWidget } from "@/components/widgets/FieldAggregateWidget"
 import { LifecycleWidget } from "@/components/widgets/LifecycleWidget"
 import { MilestoneLookaheadWidget } from "@/components/widgets/MilestoneLookaheadWidget"
+import { MyAssignmentsWidget } from "@/components/widgets/MyAssignmentsWidget"
 import { RecentActivityWidget } from "@/components/widgets/RecentActivityWidget"
 import type { DcdFilter } from "@/api/dashboard"
 import type {
@@ -96,6 +97,15 @@ export const WIDGET_LIBRARY: ReadonlyArray<WidgetDescriptor> = [
     Component: ({ widget }) => (
       <CORSummaryWidget title={widget.title} filter={dcdFilterOf(widget)} />
     ),
+  },
+  {
+    type: "my_assignments",
+    label: "My assignments",
+    description:
+      "Your still-open assignments across every project you can see, soonest due first with overdue highlighted.",
+    configurable: false,
+    multi: false,
+    Component: ({ widget }) => <MyAssignmentsWidget title={widget.title} />,
   },
   {
     type: "field_aggregate",

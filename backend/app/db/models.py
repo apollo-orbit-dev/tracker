@@ -756,7 +756,7 @@ class EventOccurrenceOverride(Base):
 
 FORM_FIELD_TYPES: frozenset[str] = frozenset(
     {"short_text", "long_text", "integer", "decimal",
-     "currency", "date", "single_select", "boolean"}
+     "currency", "date", "single_select", "boolean", "user"}
 )
 FORM_TARGET_ENTITIES: frozenset[str] = frozenset(
     {"cor", "assignment", "milestone", "event", "intake"}
@@ -817,7 +817,7 @@ class FormField(Base):
     __table_args__ = (
         CheckConstraint(
             "field_type IN ('short_text','long_text','integer','decimal',"
-            "'currency','date','single_select','boolean')",
+            "'currency','date','single_select','boolean','user')",
             name="form_field_type_valid",
         ),
     )
@@ -1037,6 +1037,7 @@ WIDGET_TYPES: frozenset[str] = frozenset(
         "cor_summary",
         "recent_activity",
         "field_aggregate",
+        "my_assignments",
     }
 )
 
@@ -1060,7 +1061,7 @@ class UserDashboardWidget(Base):
         CheckConstraint(
             "widget_type IN ("
             "'lifecycle','milestone_lookahead','cor_summary','recent_activity',"
-            "'field_aggregate'"
+            "'field_aggregate','my_assignments'"
             ")",
             name="widget_type_valid",
         ),

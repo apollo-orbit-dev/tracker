@@ -29,6 +29,18 @@ describe("MonthGrid", () => {
     expect(screen.getAllByText("P").length).toBeGreaterThan(0)
   })
 
+  it("strips the trailing phrase shared by all project titles from chip labels", () => {
+    const items: CalendarItem[] = [
+      { type: "milestone", id: "a", date: "2026-07-10", name: "M A", direction: "outbound", completed: false, actual_date: null, project_id: "p1", project_title: "Ryloth Substation Upgrade" },
+      { type: "milestone", id: "b", date: "2026-07-11", name: "M B", direction: "outbound", completed: false, actual_date: null, project_id: "p2", project_title: "Lothal Substation Upgrade" },
+    ]
+    render(<MonthGrid month={new Date("2026-07-15")} items={items} holidays={[]} events={[]} onSelect={vi.fn()} onEventSelect={vi.fn()} />)
+    expect(screen.getByText("Ryloth")).toBeInTheDocument()
+    expect(screen.getByText("Lothal")).toBeInTheDocument()
+    // the shared "Substation Upgrade" tail is not rendered as chip text
+    expect(screen.queryByText("Ryloth Substation Upgrade")).toBeNull()
+  })
+
   it("renders a holiday label as non-clickable day context", () => {
     const holidays: CalendarHolidayItem[] = [
       { type: "holiday", date: "2026-07-04", name: "Independence Day", country: "US" },

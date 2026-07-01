@@ -120,6 +120,7 @@ export const COR_STATUSES = [
   "rejected",
   "cancelled",
 ]
+export const ASSIGNMENT_STATUSES = ["open", "in_progress", "done", "cancelled"]
 export const MILESTONE_DIRECTIONS = ["outbound", "inbound", "internal", "external"]
 
 export type FieldOption = {
@@ -151,6 +152,11 @@ export const COR_FIELDS: FieldOption[] = [
   { ref: "submitted_date", label: "Submitted date", kind: "date", choices: null },
   { ref: "approved_date", label: "Approved date", kind: "date", choices: null },
 ]
+export const ASSIGNMENT_FIELDS: FieldOption[] = [
+  { ref: "status", label: "Status", kind: "select", choices: ASSIGNMENT_STATUSES },
+  { ref: "due_date", label: "Due date", kind: "date", choices: null },
+  { ref: "created_at", label: "Created", kind: "date", choices: null },
+]
 
 export const NUMERIC_AGGS = new Set(["sum", "avg", "min", "max"])
 
@@ -166,8 +172,10 @@ export const AGG_OPTIONS: {
   { value: "max", label: "Max" },
   { value: "pct_of_total", label: "% of total" },
 ]
-// Mirrors the engine: milestone metrics support count / pct_of_total only.
+// Mirrors the engine: milestone + assignment metrics support count /
+// pct_of_total only (no numeric field to aggregate).
 export const MILESTONE_AGGS = new Set(["count", "pct_of_total"])
+export const ASSIGNMENT_AGGS = new Set(["count", "pct_of_total"])
 
 export function fieldOptionsFor(
   entity: MetricDefinition["entity"],
@@ -175,6 +183,7 @@ export function fieldOptionsFor(
 ): FieldOption[] {
   if (entity === "milestone") return MILESTONE_FIELDS
   if (entity === "cor") return COR_FIELDS
+  if (entity === "assignment") return ASSIGNMENT_FIELDS
   return [
     ...PROJECT_BUILTINS,
     ...customFields.flatMap<FieldOption>((f) => {
@@ -311,6 +320,9 @@ export function metricProblems(
   }
   if (m.entity === "milestone" && !MILESTONE_AGGS.has(m.aggregation)) {
     problems.push("milestone metrics support count / % of total only")
+  }
+  if (m.entity === "assignment" && !ASSIGNMENT_AGGS.has(m.aggregation)) {
+    problems.push("assignment metrics support count / % of total only")
   }
   return problems
 }

@@ -23,12 +23,15 @@ FORM_TARGETS: dict[str, dict] = {
         "label": "Assignment",
         "requires_project": True,
         "writer": "assignment",
-        # description + due_date come from form fields; the assignee is chosen by
-        # the reviewer at approval (Pattern B); status defaults to "open" (#20.2).
+        # description + due_date + assignee come from form fields; the reviewer can
+        # still override the assignee at approval (Phase 27.9). status defaults to
+        # "open" (#20.2). A user-picker field maps to `assignee`.
         "fields": [
             {"key": "description", "label": "Description", "type": "long_text",
              "group": "Assignment"},
             {"key": "due_date", "label": "Due date", "type": "date",
+             "group": "Assignment"},
+            {"key": "assignee", "label": "Assignee", "type": "user",
              "group": "Assignment"},
         ],
     },
@@ -91,6 +94,9 @@ _FIELD_TYPE_TO_ABSTRACT: dict[str, str] = {
     "date": "date",
     "single_select": "select",
     "boolean": "toggle",
+    # Phase 27.9: a user-picker field binds only to user-typed targets
+    # (e.g. an assignment's assignee).
+    "user": "user",
 }
 
 

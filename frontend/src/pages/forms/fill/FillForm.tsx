@@ -28,7 +28,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import type { Form } from "@/api/forms"
-import { useFormTargets, useSubmit } from "@/api/forms"
+import { useFormTargets, useFormUserOptions, useSubmit } from "@/api/forms"
 import { isNumericValid } from "@/pages/forms/formFieldMeta"
 import { FieldInput } from "@/pages/forms/shared/FieldInput"
 import { TargetProjectPicker } from "./TargetProjectPicker"
@@ -58,6 +58,11 @@ export function FillForm({ form }: Props) {
   // Only live fields are shown/submitted (skip any that are "draft" etc.
   // if the Form type ever adds a status per field — for now all are live).
   const liveFields = sorted
+
+  // Dept-scoped user list for any user-picker field (Phase 27.9); only
+  // fetched when the form actually has one.
+  const hasUserField = liveFields.some((f) => f.field_type === "user")
+  const { data: userOpts } = useFormUserOptions(form.id, hasUserField)
 
   // Whether this target attaches to an existing project (cor / assignment /
   // milestone) — derived from the targets registry, not hardcoded. Intake/event
@@ -212,6 +217,7 @@ export function FillForm({ form }: Props) {
                 value={values[field.id] ?? ""}
                 onChange={(v) => setValue(field.id, v)}
                 numericError={numericErrors[field.id]}
+                userOptions={userOpts?.items ?? []}
               />
               {field.help_text && (
                 <p className="text-xs text-muted-foreground">

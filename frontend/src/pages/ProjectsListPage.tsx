@@ -1,15 +1,13 @@
 import {
   ArrowDown,
   ArrowUp,
-  ChevronDown,
   ChevronsUpDown,
   Columns2,
-  Group,
   MoreHorizontal,
   Search,
   Table2,
 } from "lucide-react"
-import { type CSSProperties, useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router"
 import { toast } from "sonner"
 
@@ -27,13 +25,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+import { MultiSelectFilter } from "@/components/MultiSelectFilter"
 import {
   Table,
   TableBody,
@@ -42,6 +34,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { DENSITY_CELL_STYLE, DENSITY_ROW_STYLE } from "@/lib/density"
 import { useDebouncedValue } from "@/hooks/useDebouncedValue"
 import { useLocalStorage } from "@/hooks/useLocalStorage"
 import { useMyDepartments } from "@/api/me"
@@ -58,25 +51,14 @@ import {
 } from "@/lib/lifecycle"
 import { hasRole } from "@/lib/roles"
 
-const ALL = "__all__"
-
 const SORT_COLUMNS = ["project_number", "client_number", "title", "lifecycle"] as const
 type SortColumn = (typeof SORT_COLUMNS)[number]
 type SortDir = "asc" | "desc"
 
-type Layout = "table" | "grouped" | "split"
-const LAYOUT_VALUES: ReadonlyArray<Layout> = ["table", "grouped", "split"]
+type Layout = "table" | "split"
+const LAYOUT_VALUES: ReadonlyArray<Layout> = ["table", "split"]
 function isLayout(v: unknown): v is Layout {
   return typeof v === "string" && (LAYOUT_VALUES as ReadonlyArray<string>).includes(v)
-}
-
-const DENSITY_ROW_STYLE: CSSProperties = {
-  height: "var(--row-h)",
-  fontSize: "var(--fs-table)",
-}
-const DENSITY_CELL_STYLE: CSSProperties = {
-  paddingTop: "var(--row-py)",
-  paddingBottom: "var(--row-py)",
 }
 
 export function ProjectsListPage() {
@@ -87,10 +69,11 @@ export function ProjectsListPage() {
   const canCreate = !!user && hasRole(user.roles, "project_editor")
   const canImport = !!user && hasRole(user.roles, "department_manager")
 
-  const [lifecycle, setLifecycle] = useState<string>(ALL)
-  const [deptId, setDeptId] = useState<string>(ALL)
-  const [clientId, setClientId] = useState<string>(ALL)
-  const [disciplineId, setDisciplineId] = useState<string>(ALL)
+  // Phase 27.3: each filter is multi-select; empty array = no filter.
+  const [lifecycle, setLifecycle] = useState<string[]>([])
+  const [deptIds, setDeptIds] = useState<string[]>([])
+  const [clientIds, setClientIds] = useState<string[]>([])
+  const [disciplineIds, setDisciplineIds] = useState<string[]>([])
   const [search, setSearch] = useState<string>("")
   const debouncedSearch = useDebouncedValue(search, 250)
   const [sort, setSort] = useState<SortColumn | null>(null)
@@ -109,13 +92,13 @@ export function ProjectsListPage() {
   // looking at "page 4 of 1" after narrowing the result set.
   useEffect(() => {
     setPage(1)
-  }, [lifecycle, deptId, clientId, disciplineId, debouncedSearch, sort, sortDir])
+  }, [lifecycle, deptIds, clientIds, disciplineIds, debouncedSearch, sort, sortDir])
 
   const list = useProjectList({
-    lifecycle_state: lifecycle === ALL ? undefined : lifecycle,
-    department_id: deptId === ALL ? undefined : deptId,
-    client_id: clientId === ALL ? undefined : clientId,
-    discipline_id: disciplineId === ALL ? undefined : disciplineId,
+    lifecycle_state: lifecycle,
+    department_id: deptIds,
+    client_id: clientIds,
+    discipline_id: disciplineIds,
     q: debouncedSearch || undefined,
     sort: sort ?? undefined,
     sort_direction: sort ? sortDir : undefined,
@@ -150,13 +133,10 @@ export function ProjectsListPage() {
     "tracker.projectsListLayout",
     "table",
   )
-  // 4.8.16: Grouped layout is temporarily disabled pending a rework.
-  // Treat a stale "grouped" persisted value as Table so users who had
-  // it set previously aren't stranded on a disabled-but-selected tab.
-  const layout: Layout =
-    isLayout(storedLayout) && storedLayout !== "grouped"
-      ? storedLayout
-      : "table"
+  // A stale "grouped" persisted value (from before the Grouped layout was
+  // removed in Phase 27.1) no longer satisfies isLayout, so it falls back
+  // to Table — old users aren't stranded on a layout that no longer exists.
+  const layout: Layout = isLayout(storedLayout) ? storedLayout : "table"
   const setLayout = (next: Layout) => setStoredLayout(next)
 
   const selectedId = searchParams.get("selected")
@@ -167,23 +147,11 @@ export function ProjectsListPage() {
     setSearchParams(params, { replace: true })
   }
 
-  // 4.7.3: collapsed group headers in Grouped mode. Local state, not URL.
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(
-    () => new Set(),
-  )
-  const toggleGroup = (label: string) => {
-    setCollapsedGroups((prev) => {
-      const next = new Set(prev)
-      next.has(label) ? next.delete(label) : next.add(label)
-      return next
-    })
-  }
-
   const items = useMemo(() => list.data?.items ?? [], [list.data])
 
   // Resolved selected project (lookup against the current page of items).
-  // Used by the Table/Grouped overlay; Split also uses its own copy
-  // computed inside SplitBody.
+  // Used by the Table layout's docked peek rail; Split also uses its own
+  // copy computed inside SplitBody.
   const selectedProject = items.find((p) => p.id === selectedId) ?? null
 
   // Cycle: not-sorted → asc → desc → not-sorted (back to backend default).
@@ -201,9 +169,9 @@ export function ProjectsListPage() {
     setSortDir("desc")
   }
 
-  // 4.8.11: Table + Grouped layouts get a docked peek rail on the right
-  // when a project is selected. Shrink the main column by the rail
-  // width so the table still gets full clicks (no modal overlay).
+  // 4.8.11: the Table layout gets a docked peek rail on the right when a
+  // project is selected. Shrink the main column by the rail width so the
+  // table still gets full clicks (no modal overlay).
   const peekDocked = layout !== "split" && selectedProject !== null
 
   return (
@@ -256,70 +224,38 @@ export function ProjectsListPage() {
             className="h-9 w-[280px] pl-7"
           />
         </div>
-        <Select value={lifecycle} onValueChange={setLifecycle}>
-          <SelectTrigger
-            className="h-9 w-[170px]"
-            aria-label="Lifecycle filter"
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>All states</SelectItem>
-            {LIFECYCLE_STATES.map((s) => (
-              <SelectItem key={s} value={s}>
-                {lifecycleLabel(s)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={deptId} onValueChange={setDeptId}>
-          <SelectTrigger
-            className="h-9 w-[160px]"
-            aria-label="Department filter"
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>All departments</SelectItem>
-            {(depts.data ?? []).map((d) => (
-              <SelectItem key={d.id} value={d.id}>
-                {d.code}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={clientId} onValueChange={setClientId}>
-          <SelectTrigger
-            className="h-9 w-[160px]"
-            aria-label="Client filter"
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>All clients</SelectItem>
-            {(clients.data?.items ?? []).map((c) => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.code}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={disciplineId} onValueChange={setDisciplineId}>
-          <SelectTrigger
-            className="h-9 w-[160px]"
-            aria-label="Discipline filter"
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>All disciplines</SelectItem>
-            {(disciplines.data?.items ?? []).map((d) => (
-              <SelectItem key={d.id} value={d.id}>
-                {d.code}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <MultiSelectFilter
+          label="Lifecycle filter"
+          allLabel="All states"
+          className="w-[170px]"
+          options={LIFECYCLE_STATES.map((s) => ({ id: s, name: lifecycleLabel(s) }))}
+          selected={lifecycle}
+          onChange={setLifecycle}
+        />
+        <MultiSelectFilter
+          label="Department filter"
+          allLabel="All departments"
+          className="w-[160px]"
+          options={(depts.data ?? []).map((d) => ({ id: d.id, name: d.code }))}
+          selected={deptIds}
+          onChange={setDeptIds}
+        />
+        <MultiSelectFilter
+          label="Client filter"
+          allLabel="All clients"
+          className="w-[160px]"
+          options={(clients.data?.items ?? []).map((c) => ({ id: c.id, name: c.code }))}
+          selected={clientIds}
+          onChange={setClientIds}
+        />
+        <MultiSelectFilter
+          label="Discipline filter"
+          allLabel="All disciplines"
+          className="w-[160px]"
+          options={(disciplines.data?.items ?? []).map((d) => ({ id: d.id, name: d.code }))}
+          selected={disciplineIds}
+          onChange={setDisciplineIds}
+        />
         <div className="ml-auto">
           <Segmented<Layout>
             value={layout}
@@ -327,13 +263,6 @@ export function ProjectsListPage() {
             aria-label="Layout"
             options={[
               { value: "table", label: "Table", icon: <Table2 className="size-3.5" /> },
-              {
-                value: "grouped",
-                label: "Grouped",
-                icon: <Group className="size-3.5" />,
-                disabled: true,
-                title: "Grouped view is being reworked — coming soon.",
-              },
               { value: "split", label: "Split", icon: <Columns2 className="size-3.5" /> },
             ]}
           />
@@ -347,7 +276,7 @@ export function ProjectsListPage() {
         </Alert>
       )}
 
-      {/* Body: Table | Grouped (same table with group rows) | Split (master-detail). */}
+      {/* Body: Table | Split (master-detail). */}
       {layout === "split" ? (
         <SplitBody
           isLoading={list.isLoading}
@@ -416,10 +345,6 @@ export function ProjectsListPage() {
                     No projects yet.
                   </TableCell>
                 </TableRow>
-              ) : layout === "grouped" ? (
-                renderGrouped(items, collapsedGroups, toggleGroup, (p) =>
-                  renderRow(p, navigate, canCreate, setEditing, setSheetOpen, setDeleting, setSelectedId, selectedId),
-                )
               ) : (
                 items.map((p) =>
                   renderRow(p, navigate, canCreate, setEditing, setSheetOpen, setDeleting, setSelectedId, selectedId),
@@ -477,7 +402,7 @@ export function ProjectsListPage() {
         />
       )}
 
-      {/* 4.8.11: docked peek rail for Table / Grouped layouts. The
+      {/* 4.8.11: docked peek rail for the Table layout. The
           fixed-position aside sits below the topbar and right of the
           (also fixed) global sidebar, so it doesn't overlay the table.
           The table is still fully clickable; selecting another row just
@@ -537,9 +462,7 @@ function SortableHead({
   )
 }
 
-// One project row — shared between Table and Grouped layouts so the
-// columns stay consistent. Pulled out (rather than inlined) once we
-// needed to render rows underneath group-header rows in Grouped mode.
+// One project row for the Table layout.
 function renderRow(
   p: Project,
   navigate: (path: string) => void,
@@ -628,66 +551,6 @@ function renderRow(
   )
 }
 
-// Group projects by lifecycle state (v1: only dimension supported).
-// Group order matches the lifecycle order used elsewhere; inside each
-// group the original sort order is preserved.
-function groupByLifecycle(items: Project[]): Array<[string, Project[]]> {
-  const map = new Map<string, Project[]>()
-  for (const p of items) {
-    const key = p.lifecycle_state
-    let bucket = map.get(key)
-    if (!bucket) {
-      bucket = []
-      map.set(key, bucket)
-    }
-    bucket.push(p)
-  }
-  return Array.from(map.entries())
-}
-
-function renderGrouped(
-  items: Project[],
-  collapsed: Set<string>,
-  toggle: (label: string) => void,
-  renderProjectRow: (p: Project) => React.ReactElement,
-) {
-  const groups = groupByLifecycle(items)
-  return groups.flatMap(([state, rows]) => {
-    const isCollapsed = collapsed.has(state)
-    const headerRow = (
-      <TableRow
-        key={`__group-${state}`}
-        className="bg-muted/30 hover:bg-muted/40"
-      >
-        <TableCell colSpan={6} className="py-1.5">
-          <button
-            type="button"
-            onClick={() => toggle(state)}
-            className="flex w-full items-center gap-2 text-left"
-            aria-expanded={!isCollapsed}
-            aria-label={`Toggle ${lifecycleLabel(state)} group`}
-          >
-            <ChevronDown
-              aria-hidden
-              className={`size-3.5 text-muted-foreground transition-transform ${
-                isCollapsed ? "-rotate-90" : ""
-              }`}
-            />
-            <Badge tone={lifecycleTone(state)} dot>
-              {lifecycleLabel(state)}
-            </Badge>
-            <span className="text-xs text-muted-foreground">
-              · {rows.length}
-            </span>
-          </button>
-        </TableCell>
-      </TableRow>
-    )
-    if (isCollapsed) return [headerRow]
-    return [headerRow, ...rows.map(renderProjectRow)]
-  })
-}
-
 // Split-mode body: condensed left rail + right peek panel for the
 // selected row. Falls back to a "pick a row" prompt when nothing is
 // selected. URL ?selected=PID drives the panel state.
@@ -725,7 +588,8 @@ function SplitBody({
                     type="button"
                     onClick={() => onSelect(p.id)}
                     aria-current={active}
-                    className={`flex w-full items-center gap-2 border-b px-3 py-2 text-left hover:bg-[hsl(var(--row-hover))] ${
+                    style={DENSITY_CELL_STYLE}
+                    className={`flex w-full items-center gap-2 border-b px-3 text-left hover:bg-[hsl(var(--row-hover))] ${
                       active ? "bg-muted/50" : ""
                     }`}
                   >
@@ -734,7 +598,10 @@ function SplitBody({
                       className={`size-2 shrink-0 rounded-full bg-[hsl(var(--tone-${lifecycleTone(p.lifecycle_state)}-dot))]`}
                     />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium">
+                      <span
+                        className="block truncate font-medium"
+                        style={{ fontSize: "var(--fs-table)" }}
+                      >
                         {p.title}
                       </span>
                       <span className="block truncate font-mono text-[11px] text-muted-foreground">

@@ -15,6 +15,7 @@ import {
 import { Label } from "@/components/ui/label"
 import {
   type ExportFormat,
+  type MultiFilter,
   useProjectExport,
 } from "@/api/projects"
 import {
@@ -33,7 +34,7 @@ export type ExportProjectsDialogProps = {
   milestoneDefs: MilestoneDefLite[]
   // Filter context shown in the summary line + forwarded to the request.
   filters: {
-    lifecycle_state?: string
+    lifecycle_state?: MultiFilter
     q?: string
     sort?: string
     sort_direction?: "asc" | "desc"
@@ -107,9 +108,14 @@ export function ExportProjectsDialog({
     }
   }
 
+  const lifecycleList = Array.isArray(filters.lifecycle_state)
+    ? filters.lifecycle_state
+    : filters.lifecycle_state
+      ? [filters.lifecycle_state]
+      : []
   const filterSummary = [
     filters.q ? `q="${filters.q}"` : null,
-    filters.lifecycle_state ? `status=${filters.lifecycle_state}` : null,
+    lifecycleList.length ? `status=${lifecycleList.join(", ")}` : null,
     filters.sort
       ? `sort=${filters.sort} ${filters.sort_direction ?? "desc"}`
       : null,

@@ -53,9 +53,9 @@ export function RightSidebar({ project, canEdit }: Props) {
   return (
     <aside
       className="
-        mt-6 space-y-6 rounded-md border p-4 bg-[hsl(var(--card-2))]
+        mt-6 space-y-4 p-4 bg-[hsl(var(--card-2))]
         lg:fixed lg:right-0 lg:top-[52px] lg:bottom-0 lg:z-30
-        lg:mt-0 lg:w-[320px] lg:rounded-none lg:border-0 lg:border-l
+        lg:mt-0 lg:w-[320px] lg:border-l
         lg:overflow-y-auto
       "
     >

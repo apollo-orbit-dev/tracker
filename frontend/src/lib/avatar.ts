@@ -8,9 +8,10 @@
  */
 
 export function hashName(name: string): number {
+  const s = name ?? ""
   let h = 0
-  for (let i = 0; i < name.length; i++) {
-    h = ((h << 5) - h + name.charCodeAt(i)) | 0
+  for (let i = 0; i < s.length; i++) {
+    h = ((h << 5) - h + s.charCodeAt(i)) | 0
   }
   return h
 }

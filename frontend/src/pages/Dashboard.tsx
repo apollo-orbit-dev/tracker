@@ -11,11 +11,10 @@ import {
   useSensors,
 } from "@dnd-kit/core"
 import { sortableKeyboardCoordinates } from "@dnd-kit/sortable"
-import { ChevronRight, LayoutGrid, MoreHorizontal, Plus, Rows3 } from "lucide-react"
+import { MoreHorizontal, Plus } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 
-import { Segmented } from "@/components/Segmented"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -47,7 +46,6 @@ import {
   useWidgetReorder,
   useWidgetWidthUpdate,
 } from "@/api/dashboard_widgets"
-import { useLocalStorage } from "@/hooks/useLocalStorage"
 import { useTopbarCrumbs } from "@/hooks/useTopbarCrumbs"
 import { applyDragEnd } from "@/pages/dashboardDragEnd"
 
@@ -96,25 +94,6 @@ export function DashboardPage() {
   const remove = useWidgetRemove(activeId ?? "")
   const reorder = useWidgetReorder(activeId ?? "")
   const resize = useWidgetWidthUpdate(activeId ?? "")
-
-  // 4.7.4: Summary / Full toggle. Summary hides the widget grid and
-  // shows a compact title-only TOC instead.
-  const [storedView, setStoredView] = useLocalStorage<string>(
-    "tracker.dashboardView",
-    "full",
-  )
-  const view: "summary" | "full" =
-    storedView === "summary" ? "summary" : "full"
-  const setView = (next: "summary" | "full") => setStoredView(next)
-  const goFullAndScroll = (widgetId: string) => {
-    setView("full")
-    // requestAnimationFrame because the widget DOM only exists after the
-    // next paint where view flips back to "full".
-    requestAnimationFrame(() => {
-      const el = document.getElementById(`widget-${widgetId}`)
-      el?.scrollIntoView({ behavior: "smooth", block: "start" })
-    })
-  }
 
   const [customizing, setCustomizing] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -371,16 +350,7 @@ export function DashboardPage() {
           {activeDashboard?.name ?? "Your dashboard"}
         </h2>
         <div className="flex items-center gap-2">
-          <Segmented<"summary" | "full">
-            value={view}
-            onChange={setView}
-            aria-label="Dashboard view"
-            options={[
-              { value: "summary", label: "Summary", icon: <Rows3 className="size-3.5" /> },
-              { value: "full", label: "Full", icon: <LayoutGrid className="size-3.5" /> },
-            ]}
-          />
-          {customizing && view === "full" && (
+          {customizing && (
             <Button
               type="button"
               variant="outline"
@@ -391,16 +361,14 @@ export function DashboardPage() {
               Add widget
             </Button>
           )}
-          {view === "full" && (
-            <Button
-              type="button"
-              variant={customizing ? "default" : "outline"}
-              size="sm"
-              onClick={() => setCustomizing((v) => !v)}
-            >
-              {customizing ? "Done" : "Customize"}
-            </Button>
-          )}
+          <Button
+            type="button"
+            variant={customizing ? "default" : "outline"}
+            size="sm"
+            onClick={() => setCustomizing((v) => !v)}
+          >
+            {customizing ? "Done" : "Customize"}
+          </Button>
           </div>
         </div>
 
@@ -428,33 +396,6 @@ export function DashboardPage() {
               .
             </CardContent>
           </Card>
-        ) : view === "summary" ? (
-          <ul
-            aria-label="Widget summary"
-            className="grid list-none gap-2 sm:grid-cols-2"
-          >
-            {order.map((w) => {
-              const desc = WIDGET_BY_TYPE[w.widget_type]
-              const label = w.title || desc?.label || w.widget_type
-              return (
-                <li key={w.id}>
-                  <button
-                    type="button"
-                    onClick={() => goFullAndScroll(w.id)}
-                    className="flex w-full items-center justify-between gap-2 rounded-md border bg-background px-3 py-2.5 text-left text-sm transition-colors hover:border-foreground/30 hover:bg-muted/40"
-                  >
-                    <span className="min-w-0 flex-1 truncate font-medium">
-                      {label}
-                    </span>
-                    <ChevronRight
-                      aria-hidden
-                      className="size-3.5 shrink-0 text-muted-foreground"
-                    />
-                  </button>
-                </li>
-              )
-            })}
-          </ul>
         ) : (
           <DndContext
             sensors={sensors}

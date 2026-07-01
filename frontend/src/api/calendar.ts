@@ -35,9 +35,9 @@ export type CalendarItemType = "milestone" | "assignment"
 export type CalendarItemsParams = {
   start: string
   end: string
-  department_id?: string | null
-  client_id?: string | null
-  discipline_id?: string | null
+  department_id?: string[]
+  client_id?: string[]
+  discipline_id?: string[]
   types?: CalendarItemType[]
 }
 
@@ -45,9 +45,10 @@ function qs(p: CalendarItemsParams): string {
   const u = new URLSearchParams()
   u.set("start", p.start)
   u.set("end", p.end)
-  if (p.department_id) u.set("department_id", p.department_id)
-  if (p.client_id) u.set("client_id", p.client_id)
-  if (p.discipline_id) u.set("discipline_id", p.discipline_id)
+  // Multi-select: emit one repeated param per id (FastAPI collects into a list).
+  for (const id of p.department_id ?? []) u.append("department_id", id)
+  for (const id of p.client_id ?? []) u.append("client_id", id)
+  for (const id of p.discipline_id ?? []) u.append("discipline_id", id)
   if (p.types && p.types.length) u.set("types", p.types.join(","))
   return u.toString()
 }

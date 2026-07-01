@@ -516,6 +516,97 @@ def test_list_filters_by_department_client_and_discipline(
     assert body["total"] == 0
 
 
+# Phase 27.3 — multi-select filters (repeated params → IN).
+
+
+def test_list_multi_select_filters(
+    client_as, admin_user: User, template_with_defs, db_session
+):
+    t1, _f, _m = template_with_defs
+    other_dept = Department(code="DIV6", name="Division 6")
+    db_session.add(other_dept)
+    db_session.flush()
+    other_client = Client(code="ZED", name="Zed", department_id=other_dept.id)
+    other_disc = Discipline(code="Civil", name="Civil", department_id=other_dept.id)
+    db_session.add_all([other_client, other_disc])
+    db_session.flush()
+    t2 = Template(
+        name="t2multi",
+        department_id=other_dept.id,
+        client_id=other_client.id,
+        discipline_id=other_disc.id,
+    )
+    db_session.add(t2)
+    db_session.flush()
+
+    c = client_as(admin_user)
+    _create(c, str(t1.id), project_number="31111")
+    _create(c, str(t2.id), project_number="32222")
+
+    # Two departments → union of both.
+    body = c.get(
+        f"/api/projects?department_id={t1.department_id}"
+        f"&department_id={other_dept.id}"
+    ).json()
+    assert body["total"] == 2
+
+    # A single repeated param still works (one-element list).
+    body = c.get(f"/api/projects?department_id={other_dept.id}").json()
+    assert body["total"] == 1
+    assert body["items"][0]["template_id"] == str(t2.id)
+
+    # Multi-select lifecycle: both projects are draft, so draft OR active
+    # includes both.
+    body = c.get(
+        "/api/projects?lifecycle_state=draft&lifecycle_state=active"
+    ).json()
+    assert body["total"] == 2
+
+    # Unknown lifecycle value → 422 (whitelist at the boundary).
+    r = c.get("/api/projects?lifecycle_state=draft&lifecycle_state=bogus")
+    assert r.status_code == 422
+
+
+def test_multi_select_filter_cannot_widen_visibility(
+    client_as, viewer_user: User, admin_user: User, template_with_defs, db_session
+):
+    """A dept-scoped viewer passing a foreign department_id sees nothing for
+    it — the filter narrows within the caller's accessible departments and
+    can never widen them."""
+    t1, _f, _m = template_with_defs  # viewer_user is granted viewer in DIV1
+    foreign_dept = Department(code="DIV7", name="Division 7")
+    db_session.add(foreign_dept)
+    db_session.flush()
+    foreign_client = Client(code="FOR", name="Foreign", department_id=foreign_dept.id)
+    foreign_disc = Discipline(code="Elec", name="Elec", department_id=foreign_dept.id)
+    db_session.add_all([foreign_client, foreign_disc])
+    db_session.flush()
+    foreign_t = Template(
+        name="foreign",
+        department_id=foreign_dept.id,
+        client_id=foreign_client.id,
+        discipline_id=foreign_disc.id,
+    )
+    db_session.add(foreign_t)
+    db_session.flush()
+
+    admin_c = client_as(admin_user)
+    _create(admin_c, str(t1.id), project_number="41111")
+    _create(admin_c, str(foreign_t.id), project_number="42222")
+
+    vc = client_as(viewer_user)
+    # Filtering to the foreign dept → empty (viewer can't see it).
+    body = vc.get(f"/api/projects?department_id={foreign_dept.id}").json()
+    assert body["total"] == 0
+    # Filtering to both DIV1 + foreign → only the DIV1 project (within scope).
+    body = vc.get(
+        f"/api/projects?department_id={t1.department_id}"
+        f"&department_id={foreign_dept.id}"
+    ).json()
+    assert body["total"] == 1
+    assert body["items"][0]["template_id"] == str(t1.id)
+
+
 # ---- search (Phase 2.6) ------------------------------------------------
 
 
@@ -1013,6 +1104,117 @@ def test_sort_unknown_custom_field_is_422(db_session, client_as, admin_user):
     )
     r = c.get(
         f"/api/projects?template_id={t.id}&sort=custom_field:{_uuid.uuid4()}"
+    )
+    assert r.status_code == 422
+
+
+# Phase 27.4 — milestone-date sort (open item 51).
+
+
+def _seed_milestone_sort_projects(db_session, admin_user, rows):
+    """One template + one milestone def; a project per (number, planned,
+    actual) row, each with a milestone of that def. Returns (template, def)."""
+    from backend.tests.test_view_columns_routes import (
+        _make_template_with_one_field_and_one_milestone,
+    )
+    from backend.app.db.models import Milestone, Project
+
+    t, _fd, md = _make_template_with_one_field_and_one_milestone(db_session)
+    for number, planned, actual in rows:
+        p = Project(
+            project_number=number,
+            title=f"P{number}",
+            template_id=t.id,
+            created_by=admin_user.id,
+        )
+        db_session.add(p)
+        db_session.flush()
+        db_session.add(
+            Milestone(
+                project_id=p.id,
+                template_milestone_def_id=md.id,
+                name="M",
+                direction="outbound",
+                date_model="planned_actual",
+                planned_date=planned,
+                actual_date=actual,
+            )
+        )
+    db_session.commit()
+    return t, md
+
+
+def test_sort_by_milestone_planned_date_is_chronological(
+    db_session, client_as, admin_user
+):
+    c = client_as(admin_user)
+    t, md = _seed_milestone_sort_projects(
+        db_session,
+        admin_user,
+        [
+            ("25720001", "2026-03-01", None),
+            ("25720002", "2026-01-15", None),
+            ("25720003", "2026-12-31", None),
+        ],
+    )
+    r = c.get(
+        f"/api/projects?template_id={t.id}&expand_milestones=true"
+        f"&sort=milestone:{md.id}:planned&sort_direction=asc"
+    )
+    assert r.status_code == 200, r.text
+    nums = [it["project_number"] for it in r.json()["items"]]
+    assert nums == ["25720002", "25720001", "25720003"], nums
+
+
+def test_sort_by_milestone_actual_date_desc_and_nulls_last(
+    db_session, client_as, admin_user
+):
+    c = client_as(admin_user)
+    t, md = _seed_milestone_sort_projects(
+        db_session,
+        admin_user,
+        [
+            ("25721001", "2026-01-01", "2026-05-01"),
+            ("25721002", "2026-01-01", "2026-09-01"),
+            ("25721003", "2026-01-01", None),  # no actual yet → sorts last
+        ],
+    )
+    r = c.get(
+        f"/api/projects?template_id={t.id}"
+        f"&sort=milestone:{md.id}:actual&sort_direction=desc"
+    )
+    assert r.status_code == 200, r.text
+    nums = [it["project_number"] for it in r.json()["items"]]
+    # Latest actual first; the missing-actual row sorts last regardless of dir.
+    assert nums == ["25721002", "25721001", "25721003"], nums
+
+
+def test_sort_milestone_requires_template_id(db_session, client_as, admin_user):
+    c = client_as(admin_user)
+    t, md = _seed_milestone_sort_projects(
+        db_session, admin_user, [("25722001", "2026-01-01", None)]
+    )
+    r = c.get(f"/api/projects?sort=milestone:{md.id}:planned")
+    assert r.status_code == 422
+
+
+def test_sort_milestone_unknown_def_or_mode_is_422(
+    db_session, client_as, admin_user
+):
+    import uuid as _uuid
+
+    c = client_as(admin_user)
+    t, md = _seed_milestone_sort_projects(
+        db_session, admin_user, [("25723001", "2026-01-01", None)]
+    )
+    # Unknown def id.
+    r = c.get(
+        f"/api/projects?template_id={t.id}&sort=milestone:{_uuid.uuid4()}:planned"
+    )
+    assert r.status_code == 422
+    # Unknown mode.
+    r = c.get(
+        f"/api/projects?template_id={t.id}&sort=milestone:{md.id}:bogus"
     )
     assert r.status_code == 422
 
