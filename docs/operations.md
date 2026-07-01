@@ -1,17 +1,24 @@
 # Operations
 
-Operations runbook for deploying and maintaining the Docker Compose stack on a single host or demo server. The same stack is what'll run on Northwind internal infrastructure post-greenlight; this doc tracks both for now.
+Operations runbook for deploying and maintaining the app with Docker Compose on a single host. There are **two different stacks**, and it matters which one you use:
+
+- **Demo / dev stack — `docker-compose.yml`.** Vite dev server (HMR), source bind-mounted, `--reload`, Postgres bound to loopback, no TLS, ports `:5181` + `:8011`. For LAN demos and local work only.
+- **Production stack — `docker-compose.prod.yml`.** Built SPA served by Caddy, backend baked in (no `--reload`, migrations auto-applied on start), single Caddy ingress (`:${HOST_PORT}`), Postgres not host-exposed. **This is what a real deployment uses.**
+
+> ⚠️ **Deploying for real (the Northwind internal / pilot server)? Use the Production stack** → [Production stack — `docker-compose.prod.yml`](#production-stack--docker-composeprodyml). The *Demo / dev deploy* section below runs the dev stack and is **not** production — it's here for LAN demos and troubleshooting. Every command in the demo section defaults to `docker-compose.yml`; the production section always passes `-f docker-compose.prod.yml`.
 
 ## Deployment targets
 
-- **POC / demo**: Docker Compose on a single host on the LAN. Browser access from any device on the same network. This is what these instructions cover.
-- **Production** (post-greenlight): same Docker Compose stack on a Northwind internal server. Differences documented inline.
+- **Demo / dev**: `docker-compose.yml` on a single LAN host — any device on the network can browse to it. Use the *Demo / dev deploy* steps.
+- **Production** (pilot / post-greenlight): `docker-compose.prod.yml` on the Northwind internal server. Use the *Production stack* steps.
 
 ## Source code remotes
 
 Deployment servers clone the app from your Git remote (e.g. `git@github.com:your-org/tracker.git`). Pin deployments to a tagged release rather than tracking a branch.
 
-## Demo deploy — first time
+## Demo / dev deploy (LAN only) — first time
+
+> This section brings up the **dev** stack (`docker-compose.yml`): Vite dev server, bind-mounted source, no TLS. It's for LAN demos and local work. **For a production deploy, skip to [Production stack — `docker-compose.prod.yml`](#production-stack--docker-composeprodyml).**
 
 Assumes the server already has Docker + Compose v2 installed and SSH access.
 
@@ -23,7 +30,7 @@ sudo git clone /srv/git/tracker.git tracker
 sudo chown -R $USER:$USER /srv/tracker
 cd /srv/tracker
 git fetch --tags
-git checkout v0.1.0   # or whichever tag is being demoed
+git checkout v0.14.0   # or whichever tag is being demoed
 ```
 
 Adjust the clone source if the remote isn't reachable from the server. For a host pulled over SSH, replace `/srv/git/tracker.git` with the SSH URL.
@@ -83,19 +90,21 @@ From another machine on the LAN:
 
 If the login fails with "Invalid email or password", check `docker compose logs backend` for an Origin-check 403 (means `ALLOWED_ORIGINS` doesn't include the URL you opened).
 
-## Updating a deployed instance
+## Updating a demo / dev instance
+
+> Dev stack only. The **production** update/rollback steps are in the Production stack section below (they pass `-f docker-compose.prod.yml` and let the entrypoint run migrations).
 
 ```sh
 cd /srv/tracker
 git fetch --tags
-git checkout v0.2.0           # the new tag
+git checkout v0.14.0           # the new tag
 docker compose up -d --build   # rebuild images, restart containers
 docker compose exec backend alembic upgrade head
 ```
 
 The Postgres volume (`tracker-postgres-data`) is preserved across rebuilds. The frontend `node_modules` named volume is also preserved.
 
-## Rolling back
+## Rolling back a demo / dev instance
 
 ```sh
 cd /srv/tracker
@@ -183,7 +192,7 @@ Same source tree, different chrome:
 ```sh
 cd /srv/tracker
 git fetch --tags
-git checkout v0.4.5  # or whichever tag you're deploying
+git checkout v0.14.0  # or whichever tag you're deploying (latest release)
 
 cp .env.example .env
 $EDITOR .env
@@ -223,9 +232,9 @@ Then browse to `http://<server>:${HOST_PORT:-8080}` and sign in.
 ```sh
 cd /srv/tracker
 git fetch --tags
-git checkout v0.4.6   # the new tag
-make up-prod          # rebuilds images, recreates containers
-                      # entrypoint.sh runs `alembic upgrade head` automatically
+git checkout <new-tag>   # e.g. the next release after the one running
+make up-prod             # rebuilds images, recreates containers
+                         # entrypoint.sh runs `alembic upgrade head` automatically
 ```
 
 The Postgres data volume (`tracker-postgres-data`) and the Caddy state volumes survive recreate. The frontend image rebuilds on every `up-prod` because Caddy serves a baked SPA — there's no way to update the SPA without a rebuild.
@@ -234,8 +243,8 @@ The Postgres data volume (`tracker-postgres-data`) and the Caddy state volumes s
 
 ```sh
 cd /srv/tracker
-git checkout v0.4.5    # previous tag
-make up-prod           # rebuild + recreate
+git checkout <previous-tag>   # the release running before the bad one
+make up-prod                  # rebuild + recreate
 # Down-migrate only if the rollback drops a column the older code expects:
 docker compose -f docker-compose.prod.yml exec backend alembic downgrade <prev_revision>
 ```
